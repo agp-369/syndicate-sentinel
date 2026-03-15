@@ -1,56 +1,63 @@
-import { Client } from "@notionhq/client";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export class SentinelWatchdog {
-  private notion: Client;
+  private notionToken: string;
   private genAI: GoogleGenerativeAI;
 
   constructor(notionToken: string) {
-    this.notion = new Client({ auth: notionToken });
+    this.notionToken = notionToken;
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  }
+
+  private async notionFetch(endpoint: string, method: string = "GET", body?: any) {
+    const res = await fetch(`https://api.notion.com/v1/${endpoint}`, {
+      method,
+      headers: {
+        "Authorization": `Bearer ${this.notionToken}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(`NOTION_ERROR: ${err.message}`);
+    }
+    return res.json();
   }
 
   async checkForNewLeads(databaseId: string) {
     try {
-      const response = await this.notion.databases.query({
-        database_id: databaseId,
+      const data = await this.notionFetch(`databases/${databaseId}/query`, "POST", {
         filter: { property: "Status", select: { is_empty: true } },
         page_size: 1
       });
-      return response.results;
+      return data.results || [];
     } catch (e) { return []; }
   }
 
   async checkForApprovals(databaseId: string) {
     try {
-      const response = await this.notion.databases.query({
-        database_id: databaseId,
-        filter: {
-          and: [
-            { property: "Approved", checkbox: { equals: true } },
-            { property: "Status", select: { equals: "🟢 VERIFIED" } }
-          ]
-        },
+      const data = await this.notionFetch(`databases/${databaseId}/query`, "POST", {
+        filter: { property: "Approved", checkbox: { equals: true } },
         page_size: 1
       });
-      return response.results;
+      return data.results || [];
     } catch (e) { return []; }
   }
 
   async finalizeLead(pageId: string) {
     try {
       // 1. Mark as Finalized
-      await this.notion.pages.update({
-        page_id: pageId,
+      await this.notionFetch(`pages/${pageId}`, "PATCH", {
         properties: {
           "Status": { select: { name: "🚀 FINALIZED" } },
-          "Approved": { checkbox: false } // Uncheck to prevent infinite loop
+          "Approved": { checkbox: false }
         }
       });
 
-      // 2. Create Follow-up Block inside the page
-      await this.notion.blocks.children.append({
-        block_id: pageId,
+      // 2. Append Follow-up Block
+      await this.notionFetch(`blocks/${pageId}/children`, "PATCH", {
         children: [
           {
             object: "block",
@@ -64,46 +71,35 @@ export class SentinelWatchdog {
               rich_text: [{ type: "text", text: { content: "Send application and pitch to recruiter." } }],
               checked: false
             }
-          },
-          {
-            object: "block",
-            type: "to_do",
-            to_do: { 
-              rich_text: [{ type: "text", text: { content: "Follow up in 3 days if no response." } }],
-              checked: false
-            }
           }
         ]
       });
       return true;
-    } catch (e) {
-      console.error("Finalization Error:", e);
-      return false;
-    }
+    } catch (e) { return false; }
   }
 
   async processLead(pageId: string, profileId: string) {
-    // Existing logic for forensics and matching
-    const [page, profile]: any = await Promise.all([
-      this.notion.pages.retrieve({ page_id: pageId }),
-      this.notion.pages.retrieve({ page_id: profileId })
-    ]);
+    try {
+      const [page, profile] = await Promise.all([
+        this.notionFetch(`pages/${pageId}`),
+        this.notionFetch(`pages/${profileId}`)
+      ]);
 
-    const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const prompt = `Perform forensics and matching for: ${JSON.stringify(page.properties)} using user profile: ${JSON.stringify(profile.properties)}. Return valid JSON with verdict, score, pitch, and tag.`;
+      const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const prompt = `Perform forensics and matching for: ${JSON.stringify(page.properties)} using career profile: ${JSON.stringify(profile.properties)}. Return valid JSON with verdict, score, pitch, and tag.`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    const intel = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const intel = JSON.parse(jsonMatch ? jsonMatch[0] : text);
 
-    await this.notion.pages.update({
-      page_id: pageId,
-      properties: {
-        "Status": { select: { name: intel.tag || "🟢 VERIFIED" } },
-        "Match Score": { number: (intel.score || 85) / 100 },
-        "Tailored Pitch": { rich_text: [{ text: { content: intel.draft || "Pitch generated." } }] }
-      }
-    });
+      await this.notionFetch(`pages/${pageId}`, "PATCH", {
+        properties: {
+          "Status": { select: { name: intel.tag || "🟢 VERIFIED" } },
+          "Match Score": { number: (intel.score || 85) / 100 },
+          "Tailored Pitch": { rich_text: [{ text: { content: intel.draft || "Pitch generated." } }] }
+        }
+      });
+    } catch (e) { console.error("ProcessLead Failure:", e); }
   }
 }

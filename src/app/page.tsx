@@ -14,12 +14,26 @@ export default function Home() {
   const nextStep = () => setStep(prev => prev + 1);
 
   const startNcaProtocol = async () => {
+    // 🛡️ STRICT VALIDATION: Prevent 'undefined' dispatches
+    if (!notionToken || !databaseId || !profileId) {
+      alert("CRITICAL ERROR: Configuration Node Incomplete. All fields (Token, DB ID, Profile ID) are required for protocol alignment.");
+      return;
+    }
+
+    // CLEAN THE IDs (Remove any whitespace or hyphens if the user pasted a raw UUID)
+    const cleanDbId = databaseId.trim().replace(/-/g, "");
+    const cleanProfileId = profileId.trim().replace(/-/g, "");
+
     setIsConnecting(true);
     try {
       const res = await fetch("/api/sentinel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notionToken, databaseId, profileId })
+        body: JSON.stringify({ 
+          notionToken: notionToken.trim(), 
+          pageId: cleanDbId, 
+          userProfileId: cleanProfileId 
+        })
       });
       const data = await res.json();
       if (data.success) nextStep();
@@ -35,16 +49,15 @@ export default function Home() {
     <div className="min-h-screen bg-[#050505] text-[#00ffcc] font-mono selection:bg-[#D4AF37] selection:text-black p-6 flex flex-col items-center justify-center relative overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,#D4AF3708,transparent_50%)] pointer-events-none" />
       
-      <div className="max-w-3xl w-full space-y-12 relative z-10">
+      <div className="max-w-3xl w-full space-y-12 relative z-10 text-left">
         
-        {/* REBRANDED LOGO */}
         <div className="flex flex-col items-center text-center space-y-4">
           <div className="w-16 h-16 border-2 border-[#D4AF37] flex items-center justify-center rotate-45 shadow-[0_0_30px_rgba(212,175,55,0.2)]">
             <span className="-rotate-45 font-bold text-[#D4AF37] text-2xl">N</span>
           </div>
           <div>
             <h1 className="text-4xl font-black uppercase tracking-tighter italic text-white gold-gradient-text">Notion Career Agent</h1>
-            <p className="text-[10px] uppercase tracking-[0.5em] text-[#D4AF37]/60 mt-2">Sovereign Guardian // MCP Intelligence Node</p>
+            <p className="text-[10px] uppercase tracking-[0.5em] text-[#D4AF37]/60 mt-2 text-center">Sovereign Guardian // MCP Intelligence Node</p>
           </div>
         </div>
 
@@ -87,7 +100,7 @@ export default function Home() {
             {step === 3 && (
               <motion.div key="step3" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-10 text-center flex flex-col items-center">
                 <div className="h-24 w-24 rounded-[2.5rem] bg-[#00ffcc]/10 border-2 border-[#00ffcc] flex items-center justify-center shadow-[0_0_50px_rgba(0,255,204,0.2)]"><CheckCircle2 size={48} className="text-[#00ffcc]" /></div>
-                <div className="space-y-2">
+                <div className="space-y-2 text-center">
                   <h2 className="text-3xl font-black uppercase italic tracking-tighter text-white gold-gradient-text">Guardian Active.</h2>
                   <p className="text-xs text-zinc-500 italic uppercase tracking-[0.2em]">Agentic workflow synchronization successful.</p>
                 </div>
@@ -96,7 +109,7 @@ export default function Home() {
                   <div className="flex justify-between items-center text-[10px] uppercase font-bold tracking-widest"><span>Opportunity Seeker</span><span className="text-[#00ffcc] animate-pulse">Scanning</span></div>
                   <div className="flex justify-between items-center text-[10px] uppercase font-bold tracking-widest"><span>Application Strategist</span><span className="text-[#00ffcc] animate-pulse">Active</span></div>
                 </div>
-                <p className="text-[10px] text-zinc-600 italic leading-relaxed uppercase tracking-widest max-w-xs">"Handshake permanent. The Agent is now managing your Notion workspace autonomously."</p>
+                <p className="text-[10px] text-zinc-600 italic leading-relaxed uppercase tracking-widest max-w-xs text-center">"Handshake permanent. The Agent is now managing your Notion workspace autonomously."</p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -109,4 +122,17 @@ export default function Home() {
       </div>
     </div>
   );
+}
+
+function ProcessNode({ icon, label, active, complete }: any) {
+  return (
+    <div className={`p-6 rounded-3xl border-2 transition-all duration-500 flex items-center gap-4 ${
+      active ? 'bg-[#D4AF37]/10 border-[#D4AF37] scale-105 shadow-xl text-[#D4AF37]' : 
+      complete ? 'bg-[#00ffcc]/5 border-[#00ffcc]/30 text-[#00ffcc]' : 
+      'bg-zinc-950 border-zinc-800 text-zinc-700 opacity-50'
+    }`}>
+      <div className={`${active ? 'animate-pulse' : ''}`}>{icon}</div>
+      <p className="text-[10px] font-black uppercase tracking-widest text-left">{label}</p>
+    </div>
+  )
 }

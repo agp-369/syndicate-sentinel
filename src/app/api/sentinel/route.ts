@@ -13,151 +13,97 @@ export async function POST(req: Request) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // 2. QUERY FOR THE FIRST EMPTY ROW
+    // 2. QUERY DATABASE
     stage = "DATABASE_QUERY";
-    console.log(`[${stage}] Querying Database: ${pageId}`);
-    
     const dbResponse = await fetch(`https://api.notion.com/v1/databases/${pageId}/query`, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${notionToken}`,
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ 
-        filter: {
-          property: "Status",
-          select: { is_empty: true }
-        },
-        page_size: 1 
-      })
+      headers: { "Authorization": `Bearer ${notionToken}`, "Notion-Version": "2022-06-28", "Content-Type": "application/json" },
+      body: JSON.stringify({ filter: { property: "Status", select: { is_empty: true } }, page_size: 1 })
     });
-
-    if (!dbResponse.ok) {
-      const err = await dbResponse.json();
-      throw new Error(`NOTION_QUERY_FAILED: ${err.message}`);
-    }
-
     const dbData = await dbResponse.json();
     let targetPage = dbData.results?.[0];
 
-    // FALLBACK: Target the most recent row if no empty ones exist
     if (!targetPage) {
-      console.log("No empty rows found, targeting most recent row.");
-      const fallbackResponse = await fetch(`https://api.notion.com/v1/databases/${pageId}/query`, {
+      const fallback = await fetch(`https://api.notion.com/v1/databases/${pageId}/query`, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${notionToken}`,
-          "Notion-Version": "2022-06-28",
-          "Content-Type": "application/json"
-        },
+        headers: { "Authorization": `Bearer ${notionToken}`, "Notion-Version": "2022-06-28", "Content-Type": "application/json" },
         body: JSON.stringify({ page_size: 1 })
       });
-      const fallbackData = await fallbackResponse.json();
+      const fallbackData = await fallback.json();
       targetPage = fallbackData.results?.[0];
     }
 
-    if (!targetPage) throw new Error("DATABASE_IS_TOTALLY_EMPTY");
+    if (!targetPage) throw new Error("DATABASE_EMPTY");
 
     const targetPageId = targetPage.id;
     const props = targetPage.properties;
 
-    // SAFE TITLE EXTRACTION
-    const titleKey = Object.keys(props).find(k => props[k].type === 'title') || "Name";
-    const rowName = props[titleKey]?.title?.[0]?.plain_text || "Untitled Lead";
-    console.log(`TARGET_IDENTIFIED: ${rowName} (${targetPageId})`);
-
-    // 3. PROFILE EXTRACTION
-    stage = "PROFILE_FETCH";
-    let profileText = "No profile provided.";
+    // 3. DEEP IDENTITY PROBE (Fetching real context)
+    stage = "IDENTITY_PROBE";
+    let profileContext = "User is a tech enthusiast.";
     if (userProfileId) {
-      const profileResponse = await fetch(`https://api.notion.com/v1/pages/${userProfileId}`, {
+      const profileRes = await fetch(`https://api.notion.com/v1/pages/${userProfileId}`, {
         headers: { "Authorization": `Bearer ${notionToken}`, "Notion-Version": "2022-06-28" }
       });
-      if (profileResponse.ok) {
-        const profileData = await profileResponse.json();
-        profileText = JSON.stringify(profileData.properties);
+      if (profileRes.ok) {
+        const profileData = await profileRes.json();
+        profileContext = JSON.stringify(profileData.properties);
       }
     }
 
-    // 4. AI SYNTHESIS
+    // 4. MASTER AGENT REASONING
     stage = "AI_SYNTHESIS";
     const prompt = `
-      You are 'Nexus Architect'. Analyze this job lead from Notion.
-      JOB_DATA: ${JSON.stringify(props)}
-      USER_PROFILE: ${profileText}
+      ROLE: Master Recruiter & Career Strategist.
+      CONTEXT: ${profileContext}
+      TARGET_JOB: ${JSON.stringify(props)}
       
       TASK:
-      1. FORENSICS: Is this a scam? (Check for high pay, Telegram, Zelle).
-      2. MATCHING: 0-100 score based on Skills.
-      3. DRAFTING: 2-sentence pitch using user's voice.
+      1. FORENSICS: Perform deep scam analysis. Check domain logic.
+      2. VOICE CLONING: Analyze the user's skills and projects. 
+      3. HIGH-CONVERSION PITCH: Write a 3-sentence tailored pitch. 
+         - Sentence 1: Connect a specific skill from the user profile to the job.
+         - Sentence 2: Mention a relevant project if found in context.
+         - Sentence 3: Direct call to action.
       
       RETURN RAW JSON ONLY:
       {
-        "verdict": "SCAM | CLEAR",
         "tag": "🔴 SCAM RISK | 🟢 VERIFIED",
         "score": 85,
-        "draft": "Tailored pitch text..."
+        "draft": "A professional, personalized pitch that sounds like a human wrote it."
       }
     `;
 
     const aiResult = await model.generateContent(prompt);
     const text = aiResult.response.text();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("AI_SYNTHESIS_CORRUPT: Gemini failed to return valid JSON.");
-    const intel = JSON.parse(jsonMatch[0]);
+    const intel = JSON.parse(jsonMatch ? jsonMatch[0] : text);
 
     // 5. WORKSPACE SYNC
     stage = "NOTION_WRITEBACK";
     const updatePayload: any = { properties: {} };
-    
-    // CASE-INSENSITIVE KEY MATCHING
     const findKey = (name: string) => Object.keys(props).find(k => k.toLowerCase().includes(name.toLowerCase()));
 
     const statusKey = findKey("Status");
     const scoreKey = findKey("Match Score");
     const pitchKey = findKey("Tailored Pitch");
 
-    // We detect property types to ensure correct formatting
-    if (statusKey) {
-      const type = props[statusKey].type;
-      if (type === 'select') {
-        updatePayload.properties[statusKey] = { select: { name: intel.tag || "🟢 VERIFIED" } };
-      } else if (type === 'status') {
-        updatePayload.properties[statusKey] = { status: { name: intel.tag || "🟢 VERIFIED" } };
-      }
-    }
-
+    if (statusKey) updatePayload.properties[statusKey] = { select: { name: intel.tag || "🟢 VERIFIED" } };
     if (scoreKey) updatePayload.properties[scoreKey] = { number: (intel.score || 85) / 100 };
-    
-    if (pitchKey) {
-      updatePayload.properties[pitchKey] = { rich_text: [{ text: { content: intel.draft || "Pitch generated." } }] };
-    }
+    if (pitchKey) updatePayload.properties[pitchKey] = { rich_text: [{ text: { content: intel.draft } }] };
 
-    console.log("DISPATCHING_NOTION_UPDATE:", JSON.stringify(updatePayload));
-
-    const updateResponse = await fetch(`https://api.notion.com/v1/pages/${targetPageId}`, {
+    await fetch(`https://api.notion.com/v1/pages/${targetPageId}`, {
       method: "PATCH",
-      headers: {
-        "Authorization": `Bearer ${notionToken}`,
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json"
-      },
+      headers: { "Authorization": `Bearer ${notionToken}`, "Notion-Version": "2022-06-28", "Content-Type": "application/json" },
       body: JSON.stringify(updatePayload)
     });
 
-    if (!updateResponse.ok) {
-      const errData = await updateResponse.json();
-      throw new Error(`NOTION_PATCH_REJECTED: ${errData.message}`);
-    }
+    const titleKey = Object.keys(props).find(k => props[k].type === 'title') || "Name";
+    const rowName = props[titleKey]?.title?.[0]?.plain_text || "Untitled Lead";
 
     return NextResponse.json({ success: true, rowName, intel });
 
   } catch (error: any) {
-    console.error(`[SENTINEL_FAILURE] Stage: ${stage} | Error:`, error.message);
-    return NextResponse.json({ 
-      error: error.message || "Internal Dispatch Error", 
-      failed_at: stage 
-    }, { status: 500 });
+    return NextResponse.json({ error: error.message, failed_at: stage }, { status: 500 });
   }
 }

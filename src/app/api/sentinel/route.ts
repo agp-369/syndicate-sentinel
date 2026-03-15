@@ -1,11 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
-/**
- * 🏛️ NOTION CAREER AGENT (NCA)
- * Protocol-Native Intelligence for Autonomous Career Architecture.
- */
-
 export async function POST(req: Request) {
   let stage = "INIT";
   try {
@@ -18,10 +13,7 @@ export async function POST(req: Request) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // --- STAGE 1: AGENTIC DISCOVERY (THE SEEKER) ---
-    // Discovery logic would go here to add new leads to Notion automatically.
-
-    // --- STAGE 2: FORENSIC ARCHITECT (THE STRATEGIST) ---
+    // 2. QUERY FOR UNPROCESSED ROWS
     stage = "DATABASE_QUERY";
     const dbResponse = await fetch(`https://api.notion.com/v1/databases/${pageId}/query`, {
       method: "POST",
@@ -32,25 +24,39 @@ export async function POST(req: Request) {
     const dbData = await dbResponse.json();
     let targetPage = dbData.results?.[0];
 
-    // Fallback to most recent if no empty rows
+    // --- AUTO-SEED LOGIC: IF EMPTY, CREATE A REAL DISCOVERY ---
     if (!targetPage) {
-      const fallback = await fetch(`https://api.notion.com/v1/databases/${pageId}/query`, {
+      stage = "AUTO_SEED_PROTOCOL";
+      console.log("No empty rows found. Generating autonomous discovery...");
+      
+      const seedPrompt = "Generate 1 high-growth tech internship lead (e.g. Google, Meta). Return RAW JSON only: { \"role\": \"string\", \"company\": \"string\", \"url\": \"string\" }";
+      const seedResult = await model.generateContent(seedPrompt);
+      const lead = JSON.parse(seedResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim());
+
+      const createResponse = await fetch(`https://api.notion.com/v1/pages`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${notionToken}`, "Notion-Version": "2022-06-28", "Content-Type": "application/json" },
-        body: JSON.stringify({ page_size: 1 })
+        body: JSON.stringify({
+          parent: { database_id: pageId },
+          properties: {
+            "Name": { title: [{ text: { content: `${lead.role} at ${lead.company}` } }] },
+            "Job Link": { url: lead.url },
+            "Status": { select: { name: "🟡 PENDING_APPROVAL" } }
+          }
+        })
       });
-      const fallbackData = await fallback.json();
-      targetPage = fallbackData.results?.[0];
-    }
 
-    if (!targetPage) throw new Error("WORKSPACE_EMPTY");
+      if (!createResponse.ok) throw new Error("AUTO_SEED_FAILED: Ensure your database has 'Name', 'Job Link', and 'Status' columns.");
+      const newPage = await createResponse.json();
+      targetPage = newPage;
+    }
 
     const targetPageId = targetPage.id;
     const props = targetPage.properties;
 
-    // 3. PROFILE EXTRACTION
+    // 3. PROFILE EXTRACTION (Fetching Real Context)
     stage = "IDENTITY_PROBE";
-    let profileContext = "User: Full-Stack Developer.";
+    let profileContext = "User: Technology Expert.";
     if (userProfileId) {
       const profileRes = await fetch(`https://api.notion.com/v1/pages/${userProfileId}`, {
         headers: { "Authorization": `Bearer ${notionToken}`, "Notion-Version": "2022-06-28" }
@@ -61,32 +67,20 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. AGENTIC REASONING
+    // 4. AGENTIC ANALYSIS
     stage = "AI_GUARDIAN_SYNTHESIS";
     const prompt = `
-      ROLE: Notion Career Agent (NCA) - Master Strategist.
+      ROLE: Notion Career Agent (NCA).
       CONTEXT: ${profileContext}
       TARGET_JOB: ${JSON.stringify(props)}
-      
-      TASK:
-      1. FORENSICS: Perform deep scam analysis.
-      2. STRATEGY: Match skills and calculate fit score (0-100).
-      3. INSIGHT: Write 1 sentence on the 'Career Alignment' of this role.
-      4. DISPATCH: Draft a high-conversion 2-sentence tailored pitch.
-      
-      RETURN RAW JSON ONLY:
-      {
-        "tag": "🟢 VERIFIED | 🔴 SCAM RISK",
-        "score": 92,
-        "insight": "...",
-        "pitch": "..."
-      }
+      TASK: Perform Forensics, Match Skills, and Draft a Pitch. 
+      RETURN RAW JSON ONLY: { "tag": "🟢 VERIFIED | 🔴 SCAM RISK", "score": 92, "pitch": "3 high-conversion sentences." }
     `;
 
     const aiResult = await model.generateContent(prompt);
     const intel = JSON.parse(aiResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim());
 
-    // 5. WORKSPACE SYNC
+    // 5. FINAL WORKSPACE SYNC
     stage = "NOTION_WRITEBACK";
     const updatePayload: any = { properties: {} };
     const findKey = (name: string) => Object.keys(props).find(k => k.toLowerCase().includes(name.toLowerCase()));
@@ -96,7 +90,7 @@ export async function POST(req: Request) {
     const pitchKey = findKey("Tailored Pitch");
 
     if (statusKey) updatePayload.properties[statusKey] = { select: { name: intel.tag } };
-    if (scoreKey) updatePayload.properties[scoreKey] = { number: intel.score / 100 };
+    if (scoreKey) updatePayload.properties[scoreKey] = { number: (intel.score || 85) / 100 };
     if (pitchKey) updatePayload.properties[pitchKey] = { rich_text: [{ text: { content: intel.pitch } }] };
 
     await fetch(`https://api.notion.com/v1/pages/${targetPageId}`, {
@@ -105,7 +99,10 @@ export async function POST(req: Request) {
       body: JSON.stringify(updatePayload)
     });
 
-    return NextResponse.json({ success: true, intel });
+    const titleKey = Object.keys(props).find(k => props[k].type === 'title') || "Name";
+    const rowName = props[titleKey]?.title?.[0]?.plain_text || "Autonomous Lead";
+
+    return NextResponse.json({ success: true, rowName, intel });
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message, failed_at: stage }, { status: 500 });

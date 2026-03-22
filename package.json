@@ -13,6 +13,7 @@
     "template": "tsx src/lib/mcp/notion-template-builder.ts"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.0.6",
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@notionhq/client": "^2.2.15",

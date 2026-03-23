@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/nextjs'
+import { ClerkProvider, UserButton } from '@clerk/nextjs'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,17 +28,10 @@ export default function RootLayout({
       <html lang="en">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
           <header className="fixed top-6 right-8 z-[100] flex gap-4 items-center">
-            <SignedOut>
-              <div className="bg-slate-950 text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl active:scale-95 transition-all">
-                <SignInButton mode="modal" />
-              </div>
-            </SignedOut>
-            <SignedIn>
-              <div className="bg-white/80 backdrop-blur-xl border border-slate-100 p-1 rounded-full shadow-2xl flex items-center gap-3 pr-4">
-                <UserButton />
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sovereign Node</span>
-              </div>
-            </SignedIn>
+            <div className="bg-white/80 backdrop-blur-xl border border-slate-100 p-1 rounded-full shadow-2xl flex items-center gap-3 pr-4">
+              <UserButton />
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sovereign Node</span>
+            </div>
           </header>
           {children}
         </body>

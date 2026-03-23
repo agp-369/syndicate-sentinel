@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ClerkProvider, UserButton } from '@clerk/nextjs'
+import { ClerkProvider } from '@clerk/nextjs'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,12 +27,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-          <header className="fixed top-6 right-8 z-[100] flex gap-4 items-center">
-            <div className="bg-white/80 backdrop-blur-xl border border-slate-100 p-1 rounded-full shadow-2xl flex items-center gap-3 pr-4">
-              <UserButton />
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sovereign Node</span>
-            </div>
-          </header>
+          {/* Old Header removed to fix Double Icon Issue. User Management now lives in the Dashboard Nav Bar. */}
           {children}
         </body>
       </html>

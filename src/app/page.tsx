@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { ShieldCheck, GraduationCap, Lock, ArrowRight, Loader2, Sparkles, ExternalLink, Zap, Terminal, Activity, CheckCircle2, Command, Users, BarChart3, Fingerprint, Mic, Moon, Sun, Briefcase, Award, TrendingUp, Trophy, LogOut, Database, Search, ShieldAlert, AlertTriangle } from "lucide-react";
+import { ShieldCheck, GraduationCap, Lock, ArrowRight, Loader2, Sparkles, ExternalLink, Zap, Terminal, Activity, CheckCircle2, Command, Users, BarChart3, Fingerprint, Mic, Moon, Sun, Briefcase, Award, TrendingUp, Trophy, LogOut, Database, Search, ShieldAlert, AlertTriangle, Construction } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth, SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -12,7 +12,7 @@ function DashboardContent() {
   const { user } = useUser();
   const { isLoaded, userId } = useAuth();
   
-  const [step, setStep] = useState<"IDENTITY" | "HANDSHAKE" | "COCKPIT">("IDENTITY");
+  const [step, setStep] = useState<"IDENTITY" | "HANDSHAKE" | "COCKPIT" | "SETUP">("IDENTITY");
   const [activeTab, setActiveTab] = useState("HUB");
   const [isThinking, setIsThinking] = useState(false);
   const [cognitiveStage, setCognitiveStage] = useState("");
@@ -22,7 +22,6 @@ function DashboardContent() {
   const [directoryData, setDirectoryData] = useState<any[]>([]);
   const [uiMode, setUiMode] = useState<"MORNING" | "FOCUS">("MORNING");
 
-  // 🛡️ PERSISTENT HANDSHAKE LOGIC
   useEffect(() => {
     const urlToken = searchParams.get("access_token");
     const storedToken = localStorage.getItem("notion_access_token");
@@ -32,17 +31,17 @@ function DashboardContent() {
       localStorage.setItem("notion_access_token", urlToken);
       effectiveToken = urlToken;
       setAccessToken(urlToken);
-      setStep("COCKPIT");
       window.history.replaceState({}, document.title, "/");
     } else if (storedToken) {
       effectiveToken = storedToken;
       setAccessToken(storedToken);
-      if (userId) setStep("COCKPIT");
+    }
+
+    if (effectiveToken && userId) {
+      performDiscovery(effectiveToken);
     } else if (userId) {
       setStep("HANDSHAKE");
     }
-
-    if (effectiveToken && userId) performDiscovery(effectiveToken);
   }, [searchParams, userId]);
 
   const performDiscovery = async (token: string) => {
@@ -56,7 +55,33 @@ function DashboardContent() {
       });
       const data = await res.json();
       setDiscovery(data);
-      if (data.directoryId) fetchDirectory(token, data.directoryId);
+      if (data.found) {
+        setStep("COCKPIT");
+        if (data.directoryId) fetchDirectory(token, data.directoryId);
+      } else {
+        setStep("SETUP");
+      }
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const initializeWorkspace = async () => {
+    setIsThinking(true);
+    setCognitiveStage("Autonomous Architect: Building Notion Infrastructure...");
+    try {
+      const res = await fetch("/api/sentinel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "INITIALIZE_WORKSPACE", accessToken })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Re-discover after building
+        performDiscovery(accessToken);
+      } else {
+        alert(data.error || "Setup failed. Ensure you shared a parent page.");
+      }
     } finally {
       setIsThinking(false);
     }
@@ -73,18 +98,14 @@ function DashboardContent() {
   };
 
   const executeRealHandshake = async () => {
-    if (!discovery?.cohortsId) return alert("Database 'Mentorship Cohorts' not found. Please create it first.");
+    if (!discovery?.cohortsId) return setStep("SETUP");
     setIsThinking(true);
     setCognitiveStage("Creating Real Mentorship Workspace in Notion...");
     try {
       const res = await fetch("/api/sentinel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          mode: "EXECUTE_MATCH", 
-          accessToken, 
-          payload: { cohortsId: discovery.cohortsId, userName: user?.firstName } 
-        })
+        body: JSON.stringify({ mode: "EXECUTE_MATCH", accessToken, payload: { cohortsId: discovery.cohortsId, userName: user?.firstName } })
       });
       const data = await res.json();
       if (data.success) setLastAction({ success: true, result: { url: data.url } });
@@ -102,10 +123,10 @@ function DashboardContent() {
       <AnimatePresence>
         {isThinking && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-slate-950/90 backdrop-blur-3xl flex items-center justify-center p-6">
-            <motion.div initial={{ scale: 0.9, y: 40 }} animate={{ scale: 1, y: 0 }} className="liquid-glass p-16 rounded-[4.5rem] max-w-xl w-full text-center space-y-10 border-white/10 shadow-[0_0_100px_rgba(79,70,229,0.2)]">
+            <motion.div initial={{ scale: 0.9, y: 40 }} animate={{ scale: 1, y: 0 }} className="liquid-glass p-16 rounded-[4.5rem] max-w-xl w-full text-center space-y-10 border-white/10">
               <div className="flex justify-center"><div className="w-24 h-24 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl animate-spin-slow"><Zap size={48} fill="currentColor" /></div></div>
               <div className="space-y-4">
-                <h3 className="text-4xl font-black uppercase tracking-tighter text-white">Sovereign Action</h3>
+                <h3 className="text-4xl font-black uppercase tracking-tighter text-white">Agentic Workflow</h3>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.5em]">{cognitiveStage}</p>
               </div>
             </motion.div>
@@ -115,26 +136,41 @@ function DashboardContent() {
 
       {/* --- STEP 1: IDENTITY --- */}
       {step === "IDENTITY" && (
-        <motion.div key="identity" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center text-center space-y-12 mt-24 max-w-2xl relative z-10">
+        <motion.div key="identity" className="flex flex-col items-center text-center space-y-12 mt-24 max-w-2xl relative z-10">
           <div className="w-32 h-32 liquid-glass rounded-[3.5rem] flex items-center justify-center shadow-2xl border-white/40"><Lock size={56} className={uiMode === "MORNING" ? "text-slate-950" : "text-white"} /></div>
-          <h1 className={`text-9xl font-black tracking-tighter uppercase leading-[0.8] ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Identity<br/>Verified</h1>
-          <SignInButton mode="modal"><button className="tactile-button px-12 py-7 text-white rounded-[2.5rem] font-black uppercase tracking-widest text-[11px] flex items-center gap-4 cursor-pointer hover:scale-105 active:scale-95 shadow-xl">Initialize Node <ArrowRight size={18} /></button></SignInButton>
+          <h1 className={`text-9xl font-black tracking-tighter uppercase leading-[0.8] ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Sovereign<br/>OS</h1>
+          <SignInButton mode="modal"><button className="tactile-button px-12 py-7 text-white rounded-[2.5rem] font-black uppercase tracking-widest text-[11px] flex items-center gap-4 cursor-pointer hover:scale-105 active:scale-95">Initialize Node <ArrowRight size={18} /></button></SignInButton>
         </motion.div>
       )}
 
       {/* --- STEP 2: HANDSHAKE --- */}
       {step === "HANDSHAKE" && (
-        <motion.div key="handshake" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center text-center space-y-12 mt-24 max-w-3xl relative z-10">
+        <motion.div key="handshake" className="flex flex-col items-center text-center space-y-12 mt-24 max-w-3xl relative z-10">
           <div className="w-24 h-24 bg-slate-950 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl"><Database size={40} /></div>
-          <div className="space-y-4">
-            <h2 className={`text-7xl font-black tracking-tighter uppercase leading-none ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Notion<br/>Connection</h2>
-            <p className={`text-sm font-medium italic ${uiMode === "MORNING" ? "text-slate-500" : "text-slate-400"}`}>Hello {user?.firstName}. Authorize the node to search your workspace for the Career Databases.</p>
+          <div className="space-y-4 text-center">
+            <h2 className={`text-7xl font-black tracking-tighter uppercase leading-none ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Connect<br/>Intelligence</h2>
+            <p className={`text-sm font-medium italic ${uiMode === "MORNING" ? "text-slate-500" : "text-slate-400"}`}>Hello {user?.firstName}. Authorize the node to access your Notion Blackboard.</p>
           </div>
-          <a href="/api/notion/auth" className="tactile-button px-16 py-8 rounded-[3rem] text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-4 cursor-pointer hover:brightness-110 active:scale-95 shadow-2xl"><Zap size={20} fill="currentColor" /> Authorize Notion Handshake</a>
+          <a href="/api/notion/auth" className="tactile-button px-16 py-8 rounded-[3rem] text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-4 cursor-pointer hover:scale-105 active:scale-95"><Zap size={20} fill="currentColor" /> Authorize Notion Handshake</a>
         </motion.div>
       )}
 
-      {/* --- STEP 3: COCKPIT (REAL DATA) --- */}
+      {/* --- STEP 2.5: SETUP WIZARD --- */}
+      {step === "SETUP" && (
+        <motion.div key="setup" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center text-center space-y-12 mt-24 max-w-3xl relative z-10">
+          <div className="w-24 h-24 bg-amber-500 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl animate-pulse"><Construction size={40} /></div>
+          <div className="space-y-4">
+            <h2 className={`text-7xl font-black tracking-tighter uppercase leading-none ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Initialize<br/>Workspace</h2>
+            <p className={`text-sm font-medium italic ${uiMode === "MORNING" ? "text-slate-500" : "text-slate-400"}`}>Databases not found. Let the AI agent build your Sovereign Infrastructure.</p>
+          </div>
+          <button onClick={initializeWorkspace} className="tactile-button px-16 py-8 rounded-[3rem] text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-4 cursor-pointer hover:scale-105 active:scale-95 shadow-2xl">
+            <Sparkles size={20} fill="currentColor" /> Build Sovereign Brain
+          </button>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Ensure at least one page is shared with 'Syndicate Sentinel'</p>
+        </motion.div>
+      )}
+
+      {/* --- STEP 3: COCKPIT --- */}
       {step === "COCKPIT" && (
         <div className="max-w-7xl w-full space-y-8 relative z-10">
           <header className="liquid-glass p-4 rounded-[2.5rem] flex items-center justify-between shadow-2xl border-white/40">
@@ -159,37 +195,36 @@ function DashboardContent() {
 
           <main className="min-h-[700px]">
             <AnimatePresence mode="wait">
-              
               {activeTab === "HUB" && (
-                <motion.div key="hub" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <motion.div key="hub" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                   <div className="lg:col-span-4 space-y-8 text-left">
                     <div className="liquid-glass p-12 rounded-[4.5rem] space-y-4 shadow-3xl">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Database Discovery</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Discovery Engine</p>
                       <div className="space-y-4">
-                        <div className="flex justify-between items-center"><span className="text-xs font-bold uppercase text-slate-400">Directory</span>{discovery?.directoryId ? <CheckCircle2 className="text-emerald-500" size={20} /> : <AlertTriangle className="text-red-500" size={20} />}</div>
-                        <div className="flex justify-between items-center"><span className="text-xs font-bold uppercase text-slate-400">Cohorts</span>{discovery?.cohortsId ? <CheckCircle2 className="text-emerald-500" size={20} /> : <AlertTriangle className="text-red-500" size={20} />}</div>
+                        <div className="flex justify-between items-center"><span className="text-xs font-bold uppercase text-slate-400">Directory</span><CheckCircle2 className="text-emerald-500" size={20} /></div>
+                        <div className="flex justify-between items-center"><span className="text-xs font-bold uppercase text-slate-400">Cohorts</span><CheckCircle2 className="text-emerald-500" size={20} /></div>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="lg:col-span-8 liquid-glass p-14 rounded-[5.5rem] flex flex-col justify-between text-left shadow-4xl relative overflow-hidden">
+                  <div className="lg:col-span-8 liquid-glass p-14 rounded-[5.5rem] flex flex-col justify-between text-left shadow-4xl">
                     <div className="space-y-8">
                       <div className="w-20 h-20 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl"><Users size={40} /></div>
-                      <h2 className={`text-8xl font-black tracking-tighter uppercase leading-[0.8] ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Real<br/>Syndication</h2>
-                      <p className={`text-lg font-medium italic ${uiMode === "MORNING" ? "text-slate-500" : "text-slate-400"}`}>Authorize the match between you and the detected Talent Repository.</p>
+                      <h2 className={`text-8xl font-black tracking-tighter uppercase leading-[0.8] ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Real<br/>Execution</h2>
+                      <p className={`text-lg font-medium italic ${uiMode === "MORNING" ? "text-slate-500" : "text-slate-400"}`}>Create a real-time Mentorship workspace in your Notion repository.</p>
                     </div>
                     <div className="mt-12">
                       {lastResult ? (
                         <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="p-10 bg-emerald-500 text-white rounded-[3.5rem] flex items-center justify-between shadow-2xl">
                           <div className="flex items-center gap-6">
                             <CheckCircle2 size={48} />
-                            <div><p className="text-[10px] font-black uppercase tracking-widest opacity-80">Workspace Realized</p><p className="text-2xl font-black uppercase tracking-tight">Active Page Created</p></div>
+                            <div><p className="text-[10px] font-black uppercase tracking-widest opacity-80">Success</p><p className="text-2xl font-black uppercase tracking-tight">Handshake Realized</p></div>
                           </div>
                           <a href={lastResult.result?.url} target="_blank" className="p-6 bg-white/20 rounded-full hover:bg-white/30 transition-all cursor-pointer"><ExternalLink size={28} /></a>
                         </motion.div>
                       ) : (
-                        <button onClick={executeRealHandshake} className={`tactile-button w-full py-12 text-white rounded-[4rem] font-black uppercase tracking-widest text-sm flex items-center justify-center gap-6 cursor-pointer hover:scale-[1.02] active:scale-95 shadow-3xl ${!discovery?.found ? "opacity-50 grayscale cursor-not-allowed" : ""}`}>
-                          <Zap size={28} fill="currentColor" /> Approve & Create in Notion <ArrowRight size={24} />
+                        <button onClick={executeRealHandshake} className="tactile-button w-full py-12 text-white rounded-[4rem] font-black uppercase tracking-widest text-sm flex items-center justify-center gap-6 cursor-pointer hover:scale-[1.02] active:scale-95 shadow-3xl">
+                          <Zap size={28} fill="currentColor" /> Approve & Execute Handshake <ArrowRight size={24} />
                         </button>
                       )}
                     </div>
@@ -199,30 +234,27 @@ function DashboardContent() {
 
               {activeTab === "DIRECTORY" && (
                 <motion.div key="directory" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="liquid-glass p-16 rounded-[5rem] text-center space-y-12 min-h-[500px]">
-                  <h2 className={`text-7xl font-black tracking-tighter uppercase leading-none ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Real<br/>Directory</h2>
+                  <h2 className={`text-7xl font-black tracking-tighter uppercase leading-none ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>Live<br/>Workforce</h2>
                   {directoryData.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
                       {directoryData.map((page: any) => (
                         <div key={page.id} className="p-8 bg-white/20 rounded-[2.5rem] border border-white/40 text-left hover:scale-105 transition-all cursor-pointer">
-                          <p className={`font-black uppercase tracking-tight ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>
-                            {page.properties?.Name?.title?.[0]?.plain_text || "Unnamed Employee"}
-                          </p>
-                          <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-2">{page.properties?.Role?.select?.name || "Member"}</p>
+                          <p className={`font-black uppercase tracking-tight ${uiMode === "MORNING" ? "text-slate-950" : "text-white"}`}>{page.properties?.Name?.title?.[0]?.plain_text || "Employee"}</p>
+                          <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mt-2">{page.properties?.Role?.select?.name || "Active Member"}</p>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="py-24 opacity-30 text-slate-500 space-y-4">
                       <Search size={64} className="mx-auto" />
-                      <p className="text-xs font-black uppercase tracking-widest">No Real Data Detected in "Employee Directory"</p>
+                      <p className="text-xs font-black uppercase tracking-widest">No Real Data Found</p>
                     </div>
                   )}
                 </motion.div>
               )}
-
             </AnimatePresence>
           </main>
-          <footer className="text-center pt-8 opacity-20"><p className="text-[10px] font-black text-slate-950 uppercase tracking-[1.5em] mix-blend-difference">Syndicate OS // Master Real-Mode v11.5</p></footer>
+          <footer className="text-center pt-8 opacity-20"><p className="text-[10px] font-black text-slate-950 uppercase tracking-[1.5em] mix-blend-difference">Syndicate OS // Master v12.0 Autonomous</p></footer>
         </div>
       )}
     </div>

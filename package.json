@@ -10,7 +10,8 @@
     "lint": "next lint",
     "agent": "tsx src/lib/mcp/agent.ts",
     "design": "tsx src/lib/mcp/notion-designer.ts",
-    "template": "tsx src/lib/mcp/notion-template-builder.ts"
+    "template": "tsx src/lib/mcp/notion-template-builder.ts",
+    "mcp": "tsx src/mcp-server.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.6",

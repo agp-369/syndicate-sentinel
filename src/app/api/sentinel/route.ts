@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   };
 
   try {
-    // 🔍 SCAN: Finds the core Career databases
+    // 🔍 SCAN: Finds the core Career databases with more flexibility
     if (mode === "SCAN_WORKSPACE") {
       const searchRes = await fetch("https://api.notion.com/v1/search", {
         method: "POST",
@@ -20,8 +20,14 @@ export async function POST(req: Request) {
       });
       const searchData = await searchRes.json();
       
-      const talent = searchData.results?.find((d: any) => d.title?.[0]?.plain_text?.toLowerCase().includes("talent"));
-      const manifolds = searchData.results?.find((d: any) => d.title?.[0]?.plain_text?.toLowerCase().includes("manifold"));
+      const findDb = (keywords: string[]) => 
+        searchData.results?.find((d: any) => {
+          const title = d.title?.[0]?.plain_text?.toLowerCase() || "";
+          return keywords.some(k => title.includes(k));
+        });
+
+      const talent = findDb(["talent", "employee", "directory", "pool"]);
+      const manifolds = findDb(["manifold", "career", "strategy", "roadmap"]);
 
       return NextResponse.json({ 
         success: true, 
@@ -31,17 +37,18 @@ export async function POST(req: Request) {
       });
     }
 
-    // 📋 READ: Fetches the Talent Pool
+    // 📋 READ: Fetches the Talent Pool (handles invalid IDs gracefully)
     if (mode === "READ_TALENT" && payload.talentId) {
       const res = await fetch(`https://api.notion.com/v1/databases/${payload.talentId}/query`, {
         method: "POST",
         headers,
       });
+      if (!res.ok) throw new Error("Database Access Denied");
       const data = await res.json();
       return NextResponse.json({ success: true, results: data.results });
     }
 
-    // 🚀 SYNC: The "Agentic" action - Creating a Career Strategy
+    // 🚀 SYNC: Generate Career Strategy
     if (mode === "GENERATE_STRATEGY" && payload.manifoldId) {
       const res = await fetch("https://api.notion.com/v1/pages", {
         method: "POST",

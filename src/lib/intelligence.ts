@@ -34,18 +34,18 @@ export async function runForensicAudit(url: string): Promise<ForensicReport> {
   try {
     const jobRes = await axios.get(url, { 
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
-      timeout: 10000 
+      timeout: 5000 // Reduced from 10s to prevent gateway timeouts
     });
     jobHtml = jobRes.data;
     domain = new URL(url).hostname;
 
-    // Attempt to scrape root domain for cross-reference
+    // Attempt to scrape root domain for cross-reference (Fast check)
     try {
         const rootUrl = `${new URL(url).protocol}//${domain}`;
-        const domainRes = await axios.get(rootUrl, { timeout: 5000 });
+        const domainRes = await axios.get(rootUrl, { timeout: 3000 });
         domainHtml = domainRes.data;
     } catch (e) {
-        console.warn("[INTELLIGENCE] Root domain scrape failed, proceeding with job only.");
+        console.warn("[INTELLIGENCE] Root domain scrape failed.");
     }
 
   } catch (error) {

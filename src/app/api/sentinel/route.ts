@@ -99,46 +99,61 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, results: data.results });
     }
 
-    // 🕵️‍♂️ FORENSIC AUDIT: Deep Scan & Log
+    // 🛠️ DIAGNOSTICS: Check if keys/access are working
+    if (mode === "SYSTEM_DIAGNOSTICS") {
+        return NextResponse.json({ 
+            success: true, 
+            gemini: !!process.env.GEMINI_API_KEY,
+            notion: !!process.env.NOTION_TOKEN,
+            hasAccessToken: !!accessToken 
+        });
+    }
+
+    // 🕵️‍♂️ FORENSIC AUDIT: Deep Scan & Log (HITL Phase 1)
     if (mode === "FORENSIC_AUDIT" && payload.url) {
       // 1. Run Intelligence Engine
       const analysis = await runForensicAudit(payload.url);
 
-      // 2. Find Database (Reuse scan logic or use provided ID)
-      // Ideally we should pass the DB ID from the frontend to avoid re-scanning
+      // 2. Find Database
       const dbId = payload.dbId; 
       
       if (dbId) {
-         // 3. Create Page in Notion
+         // 3. Create Page in Notion with 'Awaiting Review' status (Plan: The Alchemist Stage 1)
          const res = await fetch("https://api.notion.com/v1/pages", {
           method: "POST",
           headers,
           body: JSON.stringify({
             parent: { database_id: dbId },
             properties: {
-              "Name": { title: [{ text: { content: analysis.jobDetails.title } }] },
-              "Role": { select: { name: "Analyzed Job" } }, // Fallback if 'Role' is the column
-              "Skills": { multi_select: analysis.analysis.flags.map(f => ({ name: f.substring(0,20) })) } // Use flags as tags
+              "Name": { title: [{ text: { content: `${analysis.jobDetails.company}: ${analysis.jobDetails.title}` } }] },
+              "Role": { select: { name: "AWAITING_REVIEW" } }, // Plan: Stage 1 State
+              "Skills": { multi_select: analysis.analysis.flags.slice(0, 5).map(f => ({ name: f.substring(0,20).replace(/[^a-zA-Z0-9 ]/g, '') })) } 
             },
             children: [
               {
                 object: "block",
                 type: "callout",
                 callout: {
-                  rich_text: [{ type: "text", text: { content: `VERDICT: ${analysis.verdict} (${analysis.score}%)` } }],
-                  icon: { emoji: analysis.score > 80 ? "🟢" : analysis.score > 50 ? "🟡" : "🔴" },
-                  color: analysis.score > 80 ? "green_background" : "red_background"
+                  rich_text: [{ type: "text", text: { content: `SENTINEL VERDICT: ${analysis.verdict} (${analysis.score}%) - HUMAN APPROVAL REQUIRED` } }],
+                  icon: { emoji: "🛡️" },
+                  color: analysis.score > 80 ? "green_background" : "yellow_background"
                 }
               },
               {
                 object: "block",
                 type: "paragraph",
-                paragraph: { rich_text: [{ type: "text", text: { content: `SUMMARY: ${analysis.jobDetails.summary}` } }] }
+                paragraph: { rich_text: [{ type: "text", text: { content: `FORENSIC_SUMMARY: ${analysis.jobDetails.summary}` } }] }
               }
             ]
           }),
         });
         const data = await res.json();
+        
+        if (!res.ok) {
+            console.error("[NOTION_ERROR]", data);
+            throw new Error(`Notion Sync Failed: ${data.message || 'Unknown Error'}`);
+        }
+
         return NextResponse.json({ success: true, analysis, url: data.url });
       }
       

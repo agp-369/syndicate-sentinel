@@ -116,6 +116,11 @@ export class UserProfileReader {
     skillsPageId?: string;
     goalsPageId?: string;
   }> {
+    const search = await this.notion.search({
+      filter: { property: "object", value: "page" },
+      page_size: 20,
+    });
+
     const discovered: Record<string, string | undefined> = {
       resumePageId: undefined,
       personalPageId: undefined,
@@ -123,45 +128,26 @@ export class UserProfileReader {
       goalsPageId: undefined,
     };
 
-    try {
-      const search = await this.notion.search({
-        filter: { property: "object", value: "page" },
-        page_size: 20,
-      });
+    for (const page of search.results as any[]) {
+      const title = page.properties?.title?.title?.[0]?.plain_text?.toLowerCase() || 
+                    page.properties?.Name?.title?.[0]?.plain_text?.toLowerCase() || "";
+      
+      const blocks = await this.getPageContent(page.id);
+      const content = blocks.join(" ").toLowerCase();
 
-      for (const page of search.results as any[]) {
-        try {
-          const title = page.properties?.title?.title?.[0]?.plain_text?.toLowerCase() || 
-                        page.properties?.Name?.title?.[0]?.plain_text?.toLowerCase() || "";
-          
-          let content = "";
-          try {
-            const blocks = await this.getPageContent(page.id);
-            content = blocks.join(" ").toLowerCase();
-          } catch {
-            // Skip content extraction if it fails
-          }
-
-          // Detect page type by content
-          if (title.includes("resume") || (content.includes("experience") && content.includes("company"))) {
-            discovered.resumePageId = page.id;
-          }
-          if (title.includes("about") || title.includes("personal") || title.includes("contact")) {
-            discovered.personalPageId = page.id;
-          }
-          if (title.includes("skill") || content.includes("technologies") || content.includes("proficient")) {
-            discovered.skillsPageId = page.id;
-          }
-          if (title.includes("goal") || title.includes("objective") || title.includes("aspiration")) {
-            discovered.goalsPageId = page.id;
-          }
-        } catch (error) {
-          console.error("Error processing page:", page.id, error);
-        }
+      // Detect page type by content
+      if (title.includes("resume") || content.includes("experience") && content.includes("company")) {
+        discovered.resumePageId = page.id;
       }
-    } catch (error) {
-      console.error("Error discovering profile pages:", error);
-      // Return empty discovery - setup will use default profile
+      if (title.includes("about") || title.includes("personal") || title.includes("contact")) {
+        discovered.personalPageId = page.id;
+      }
+      if (title.includes("skill") || content.includes("technologies") || content.includes("proficient")) {
+        discovered.skillsPageId = page.id;
+      }
+      if (title.includes("goal") || title.includes("objective") || title.includes("aspiration")) {
+        discovered.goalsPageId = page.id;
+      }
     }
 
     return discovered;
@@ -267,43 +253,32 @@ export class UserProfileReader {
   }
 
   private async readResumePage(pageId: string): Promise<Partial<UserProfile>> {
-    try {
-      const blocks = await this.getPageBlocks(pageId);
-      const content = this.extractTextFromBlocks(blocks);
-      
-      return {
-        headline: this.extractHeadline(content),
-        summary: this.extractSummary(content),
-        experience: this.extractExperience(content),
-        education: this.extractEducation(content),
-      };
-    } catch (error) {
-      console.error("Error reading resume page:", error);
-      return {};
-    }
+    const blocks = await this.getPageBlocks(pageId);
+    const content = this.extractTextFromBlocks(blocks);
+    
+    return {
+      headline: this.extractHeadline(content),
+      summary: this.extractSummary(content),
+      experience: this.extractExperience(content),
+      education: this.extractEducation(content),
+    };
   }
 
   private async readPersonalPage(pageId: string): Promise<Partial<UserProfile>> {
-    try {
-      const blocks = await this.getPageBlocks(pageId);
-      const content = this.extractTextFromBlocks(blocks);
-      
-      return {
-        name: this.extractName(content),
-        email: this.extractEmail(content),
-        preferences: this.extractPreferences(content),
-      };
-    } catch (error) {
-      console.error("Error reading personal page:", error);
-      return {};
-    }
+    const blocks = await this.getPageBlocks(pageId);
+    const content = this.extractTextFromBlocks(blocks);
+    
+    return {
+      name: this.extractName(content),
+      email: this.extractEmail(content),
+      preferences: this.extractPreferences(content),
+    };
   }
 
   private async readSkillsPage(pageId: string): Promise<string[]> {
-    try {
-      const blocks = await this.getPageBlocks(pageId);
-      const content = this.extractTextFromBlocks(blocks);
-      const contentStr = content.join(" ");
+    const blocks = await this.getPageBlocks(pageId);
+    const content = this.extractTextFromBlocks(blocks);
+    const contentStr = content.join(" ");
     
     // Extract skills - look for common patterns
     const skills: string[] = [];
@@ -332,31 +307,22 @@ export class UserProfileReader {
     }
 
     return skills;
-    } catch (error) {
-      console.error("Error reading skills page:", error);
-      return [];
-    }
   }
 
   private async readGoalsPage(pageId: string): Promise<string[]> {
-    try {
-      const blocks = await this.getPageBlocks(pageId);
-      const content = this.extractTextFromBlocks(blocks);
-      const contentStr = content.join(" ");
-      
-      // Extract goals from bullet points
-      const goals: string[] = [];
-      const bulletPattern = /[-•*]\s*(.+)/g;
-      let match;
-      while ((match = bulletPattern.exec(contentStr)) !== null) {
-        goals.push(match[1].trim());
-      }
-
-      return goals;
-    } catch (error) {
-      console.error("Error reading goals page:", error);
-      return [];
+    const blocks = await this.getPageBlocks(pageId);
+    const content = this.extractTextFromBlocks(blocks);
+    const contentStr = content.join(" ");
+    
+    // Extract goals from bullet points
+    const goals: string[] = [];
+    const bulletPattern = /[-•*]\s*(.+)/g;
+    let match;
+    while ((match = bulletPattern.exec(contentStr)) !== null) {
+      goals.push(match[1].trim());
     }
+
+    return goals;
   }
 
   private async getPageBlocks(pageId: string): Promise<any[]> {

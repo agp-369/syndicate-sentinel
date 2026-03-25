@@ -782,92 +782,73 @@ export function AgentOSContent() {
           </motion.div>
         </div>
       ) : !setupComplete ? (
-        /* Page Selection / Agent Auto-Setup */
-        <div className="max-w-5xl mx-auto px-6 py-12">
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-            <div className="text-center">
-              <h2 className="text-3xl font-black text-white mb-2">Welcome to Forensic Career OS</h2>
-              <p className="text-slate-400">
-                Connect your Notion workspace to start your career intelligence journey.
+        /* Auto Setup - Direct to setup without page selection */
+        <div className="max-w-4xl mx-auto px-6 py-20 text-center">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+            <div className="relative">
+              <div className="w-28 h-28 bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-cyan-500/30 animate-pulse">
+                <Bot className="text-white" size={56} />
+              </div>
+              <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-white text-xs px-3 py-1 rounded-full font-bold">
+                AI Active
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <h2 className="text-4xl font-black text-white">Welcome, {user?.firstName || "Professional"}!</h2>
+              <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                🔍 Forensic Career OS is analyzing your Notion workspace to extract your profile, 
+                resume details, and career information automatically.
               </p>
             </div>
 
-            {/* Agent Auto-Decide Button - Primary Action */}
-            <div className="bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-indigo-500/10 border border-cyan-500/30 rounded-2xl p-8">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
-                    <Bot className="text-white" size={32} />
-                  </div>
-                  <div className="text-left">
-                    <h3 className="text-xl font-bold text-white">🤖 Agent Auto-Setup</h3>
-                    <p className="text-sm text-slate-400">AI analyzes your workspace and creates your Career OS automatically</p>
-                  </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-center gap-8 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" />
+                  <span className="text-slate-400">Extracting Profile</span>
                 </div>
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); agentAutoSetup(); }}
-                  disabled={isLoading}
-                  className="px-10 py-5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:from-slate-600 disabled:to-slate-600 text-white rounded-xl font-black text-sm flex items-center gap-3 transition-all duration-200 cursor-pointer transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed shadow-xl shadow-cyan-500/20"
-                >
-                  {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Wand2 size={20} />}
-                  {isLoading ? "Analyzing..." : "Start Auto-Setup"}
-                </button>
-              </div>
-            </div>
-
-            {/* Manual Page Selection */}
-            <div className="bg-slate-900/50 rounded-2xl border border-white/5 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <FolderOpen className="text-blue-400" size={24} />
-                  <span className="font-bold text-white">{pages.length} pages found</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
+                  <span className="text-slate-400">Building Dashboard</span>
                 </div>
-                <button
-                  onClick={loadNotionPages}
-                  className="p-2 hover:bg-slate-800 rounded-lg transition-all duration-150 cursor-pointer"
-                >
-                  <RefreshCw size={18} className="text-slate-400" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse" />
+                  <span className="text-slate-400">Matching Jobs</span>
+                </div>
               </div>
 
-              <div className="max-h-72 overflow-y-auto mb-4 custom-scrollbar">
-                {pageTree.map((page, idx) => (
-                  <div key={idx}>{renderPageTree([page])}</div>
-                ))}
-                {pageTree.length === 0 && (
-                  <p className="text-slate-500 text-center py-8">No pages found</p>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                <p className="text-sm text-slate-400">
-                  {selectedPages.length > 0 ? (
-                    <>
-                      <span className="text-cyan-400 font-bold">{selectedPages.length} pages</span> selected
-                      <span className="text-slate-500 ml-1">(includes all children)</span>
-                    </>
-                  ) : (
-                    <span className="text-slate-500">Click pages to select them</span>
-                  )}
-                </p>
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCreateFromSelected(); }}
-                  disabled={isLoading || selectedPages.length === 0}
-                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed disabled:text-slate-500 text-white rounded-xl font-bold text-sm flex items-center gap-3 transition-all duration-200 cursor-pointer"
-                >
-                  {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-                  Create from Selected
-                </button>
+              <div className="w-full max-w-md mx-auto bg-slate-800 rounded-full h-2 overflow-hidden">
+                <motion.div 
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 3, ease: "easeInOut" }}
+                  className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500"
+                />
               </div>
             </div>
 
-            {/* Natural Language Chat Preview */}
-            <div className="bg-slate-800/30 rounded-xl p-4 border border-white/5">
-              <p className="text-xs text-slate-500 uppercase font-bold mb-2">💬 Natural Language Commands</p>
-              <p className="text-sm text-slate-400">
-                After setup, just say things like: "Find me senior developer jobs" or "Check this job posting: https://..."
-              </p>
-            </div>
+            <button
+              onClick={agentAutoSetup}
+              disabled={isLoading}
+              className="px-12 py-5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:from-slate-600 disabled:to-slate-600 text-white rounded-2xl font-black text-lg flex items-center gap-4 mx-auto transition-all duration-200 cursor-pointer transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed shadow-xl shadow-cyan-500/30"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="animate-spin" size={24} />
+                  <span>Analyzing Workspace...</span>
+                </>
+              ) : (
+                <>
+                  <Wand2 size={24} />
+                  <span>Start Agent Auto-Setup</span>
+                </>
+              )}
+            </button>
+
+            <p className="text-xs text-slate-500">
+              Agent will automatically discover your pages, extract resume data, and create your Career OS
+            </p>
           </motion.div>
         </div>
       ) : (

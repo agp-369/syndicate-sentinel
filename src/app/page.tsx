@@ -279,6 +279,54 @@ export function AgentOSContent() {
     }
   };
 
+  const handleCreateFromSelected = async () => {
+    if (selectedPages.length === 0) {
+      addLog("⚠️ Please select at least one page first");
+      return;
+    }
+    
+    setIsLoading(true);
+    addLog(`📁 Selected ${selectedPages.length} pages, creating Career OS...`);
+
+    try {
+      // Save selected pages to cookie
+      await fetch("/api/notion/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageIds: selectedPages })
+      });
+
+      // Now call agent setup with selected pages
+      const res = await fetch("/api/career", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "SETUP", selectedPages })
+      });
+
+      const data = await res.json();
+      
+      if (data.success) {
+        setProfile(data.profile);
+        setSetupComplete(true);
+        setInfraCreated(true);
+        addLog(`✅ Forensic Career OS Ready!`);
+        addLog(`📊 ${data.stats.jobsCreated} jobs analyzed`);
+        addLog(`🧬 ${data.stats.skillsAnalyzed} skills DNA mapped`);
+        
+        if (data.jobs) setJobs(data.jobs);
+        if (data.skills) setSkillGaps(data.skills);
+        if (data.forensicReports) setForensicReports(data.forensicReports);
+        setActiveTab("overview");
+      } else {
+        addLog(`❌ ${data.error}`);
+      }
+    } catch (e: any) {
+      addLog(`❌ Error: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const generateJobRecommendations = async () => {
     setIsLoading(true);
     addLog("🔍 Matching jobs to your DNA...");
@@ -580,40 +628,78 @@ export function AgentOSContent() {
       const hasChildren = page.children && page.children.length > 0;
       const isSelected = isPageSelected(page.id);
       const isExpanded = expandedPages.has(page.id);
+      const childCount = page.children?.length || 0;
       
       return [
         <div key={page.id} className="select-none">
-          <button
-            onClick={() => togglePageSelection(page, !isSelected)}
-            className={`w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-150 cursor-pointer group ${
-              isSelected ? "bg-indigo-500/20 border border-indigo-500/40" : "hover:bg-slate-700/50"
+          <div
+            className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-150 group ${
+              isSelected 
+                ? "bg-indigo-500/20 border border-indigo-500/40" 
+                : "hover:bg-slate-700/50 border border-transparent"
             }`}
-            style={{ paddingLeft: `${12 + depth * 20}px` }}
+            style={{ paddingLeft: `${12 + depth * 24}px` }}
           >
-            {hasChildren && (
+            {/* Expand/Collapse Button */}
+            {hasChildren ? (
               <button
                 onClick={(e) => { e.stopPropagation(); toggleExpand(page.id); }}
-                className="p-0.5 hover:bg-slate-600 rounded cursor-pointer"
+                className="p-1 hover:bg-slate-600 rounded cursor-pointer flex-shrink-0"
               >
-                {isExpanded ? <ChevronRight size={14} className="text-slate-400 rotate-90" /> : <ChevronRight size={14} className="text-slate-400" />}
+                {isExpanded ? (
+                  <ChevronRight size={16} className="text-cyan-400" />
+                ) : (
+                  <ChevronRight size={16} className="text-slate-500" />
+                )}
               </button>
+            ) : (
+              <div className="w-6 flex-shrink-0" />
             )}
-            {!hasChildren && <span className="w-5" />}
-            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all cursor-pointer ${
-              isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-500 group-hover:border-slate-400"
-            }`}>
+            
+            {/* Selection Checkbox */}
+            <button
+              onClick={(e) => { e.stopPropagation(); togglePageSelection(page, !isSelected); }}
+              className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
+                isSelected 
+                  ? "border-indigo-500 bg-indigo-500" 
+                  : "border-slate-500 hover:border-slate-400"
+              }`}
+            >
               {isSelected && <CheckCircle2 size={12} className="text-white" />}
-            </div>
-            {page.icon && <span className="text-base">{page.icon}</span>}
-            <span className={`text-sm flex-1 truncate cursor-pointer ${isSelected ? "text-white" : "text-slate-300"}`}>
-              {page.title}
+            </button>
+            
+            {/* Page Icon */}
+            {page.icon ? (
+              <span className="text-base flex-shrink-0">{page.icon}</span>
+            ) : hasChildren ? (
+              <FolderOpen size={16} className="text-amber-400 flex-shrink-0" />
+            ) : (
+              <FileText size={16} className="text-slate-500 flex-shrink-0" />
+            )}
+            
+            {/* Page Title */}
+            <span className={`text-sm flex-1 truncate ${isSelected ? "text-white font-medium" : "text-slate-300"}`}>
+              {page.title || "Untitled"}
             </span>
+            
+            {/* Child Count Badge */}
             {hasChildren && (
-              <span className="text-[10px] text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded cursor-pointer">
-                {page.children?.length} items
+              <span className={`text-[10px] px-2 py-0.5 rounded flex-shrink-0 ${
+                isExpanded 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "bg-slate-700 text-slate-500"
+              }`}>
+                {childCount} {childCount === 1 ? "child" : "children"}
               </span>
             )}
-          </button>
+            
+            {/* Parent Indicator */}
+            {depth === 0 && hasChildren && (
+              <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded uppercase flex-shrink-0">
+                Parent
+              </span>
+            )}
+          </div>
         </div>,
         ...(isExpanded && page.children ? renderPageTree(page.children, depth + 1) : [])
       ];
@@ -719,7 +805,7 @@ export function AgentOSContent() {
                   </div>
                 </div>
                 <button
-                  onClick={agentAutoSetup}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); agentAutoSetup(); }}
                   disabled={isLoading}
                   className="px-10 py-5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:from-slate-600 disabled:to-slate-600 text-white rounded-xl font-black text-sm flex items-center gap-3 transition-all duration-200 cursor-pointer transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed shadow-xl shadow-cyan-500/20"
                 >
@@ -755,22 +841,19 @@ export function AgentOSContent() {
 
               <div className="flex items-center justify-between pt-4 border-t border-white/5">
                 <p className="text-sm text-slate-400">
-                  {selectedPages.length} pages selected
-                  {selectedPages.length > 0 && <span className="text-cyan-400 ml-2">(includes children)</span>}
+                  {selectedPages.length > 0 ? (
+                    <>
+                      <span className="text-cyan-400 font-bold">{selectedPages.length} pages</span> selected
+                      <span className="text-slate-500 ml-1">(includes all children)</span>
+                    </>
+                  ) : (
+                    <span className="text-slate-500">Click pages to select them</span>
+                  )}
                 </p>
                 <button
-                  onClick={async () => {
-                    setIsLoading(true);
-                    await fetch("/api/notion/pages", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ pageIds: selectedPages })
-                    });
-                    await agentAutoSetup();
-                    setIsLoading(false);
-                  }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCreateFromSelected(); }}
                   disabled={isLoading || selectedPages.length === 0}
-                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm flex items-center gap-3 transition-all duration-200 cursor-pointer"
+                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed disabled:text-slate-500 text-white rounded-xl font-bold text-sm flex items-center gap-3 transition-all duration-200 cursor-pointer"
                 >
                   {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
                   Create from Selected

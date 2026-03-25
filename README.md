@@ -1,86 +1,258 @@
+# 🌌 Lumina: Career Intelligence OS
+
 <div align="center">
-  <h1>🌌 Lumina: Sovereign Career Agent</h1>
-  <p><strong>A Dual-Architecture Framework for the Dev.to Notion MCP Challenge</strong></p>
-  <img src="https://img.shields.io/badge/Notion-MCP-black?logo=notion" alt="Notion MCP"/>
-  <img src="https://img.shields.io/badge/Powered%20By-Gemini%202.5%20Flash-blue" alt="Gemini AI"/>
-  <img src="https://img.shields.io/badge/Architecture-Next.js%20%7C%20Node%20MCP-emerald" alt="Next.js & MCP"/>
+  <h1>Project Lumina</h1>
+  <p><strong>Autonomous Career Intelligence via Notion MCP</strong></p>
+  
+  ![Notion MCP](https://img.shields.io/badge/Notion-MCP-black?logo=notion)
+  ![Gemini](https://img.shields.io/badge/Powered%20By-Gemini%202.5%20Flash-blue)
+  ![Next.js](https://img.shields.io/badge/Framework-Next.js%2016-emerald)
+  ![Clerk](https://img.shields.io/badge/Auth-Clerk-purple)
 </div>
 
 ---
 
-## 🏆 The Vision: Beyond Static Dashboards
-The modern enterprise requires more than generic B2B SaaS interfaces. **Lumina** is a breathtaking **"Machine Experience" (MX)** terminal that reimagines how professionals construct their career trajectories. Built explicitly for the Notion MCP Challenge, Lumina bridges the gap between Web UX and autonomous Model Context Protocol capabilities.
+## 🚀 What is Lumina?
 
-Rather than just building a web wrapper, Lumina features a true **Dual-Node Architecture**:
-1. **The Human-in-the-Loop Web Cockpit**: A visually stunning Liquid Glassmorphism Next.js dashboard providing transparent Intent-Routing, real-time JSON-RPC terminal visualizations, and strict Human-in-the-Loop safeguards prior to Notion synchronization.
-2. **The Sovereign Node (Official MCP Server)**: A native, zero-dependency Node.js implementation of the standard `@modelcontextprotocol/sdk`. Judges and developers can plug this server directly into Claude Desktop to interact with Lumina's core tools completely autonomously!
+**Lumina** is an autonomous career intelligence system that transforms job searching into a forensic, AI-powered experience. Built for the **Notion MCP Challenge**, it demonstrates true Model Context Protocol integration with real-time agent visualization.
 
----
+### Key Innovation: Real Agentic Workflows
 
-## ⚡ Core Features
+Unlike simple dashboard wrappers, Lumina showcases **actual MCP integration**:
 
-### 🕵️‍♂️ Module 1: Forensic Intelligence Engine v2.0
-Tired of "Ghost Jobs" and recruitment scams? Paste a job posting URL into the Sentinel.
-*   **Deep Cross-Reference:** Unlike basic scrapers, v2.0 analyzes the **root domain reputation** and **tone consistency** between the job post and company homepage.
-*   **Ghost Job Detection:** Flagging vague "evergreen" descriptions and pooling language.
-*   **Secure Sync:** Writes a beautifully formatted verdict directly into your **Notion Career Ledger**.
-
-### 🎓 Module 2: Strategic Syllabus Provisioning
-Enter a target trajectory (e.g., *Junior React Engineer* -> *Principal AI Architect*).
-*   **90-Day Roadmap:** Generates an actionable, 3-phase syllabus using Gemini 2.5 Flash.
-*   **Workspace Auto-Provisioning:** Seamlessly builds a dedicated Notion page with interactive checklists and tracking.
+1. **Forensic Sentinel** - AI analyzes job postings for legitimacy
+2. **Human-in-the-Loop** - Every action requires explicit approval
+3. **Real-Time Visualization** - Watch the AI think in real-time
+4. **Complete Audit Trail** - Every decision logged to Notion
 
 ---
 
-## 🛠️ The Technical Ecosystem: Built for Trust
+## 🎯 Features
 
-Lumina specifically addresses the "Enterprise Trust" guidelines of the challenge. Our frontend implements **Progressive Disclosure** (explaining the AI's reasoning) and strict **Human Override Execution** buttons. Before any autonomous agent touches your Notion databases, a human must click Approve.
+### 🕵️ Forensic Job Analysis
+- Deep scraping with company cross-reference
+- Ghost Job detection (vague postings, old dates)
+- Scam flagging (Telegram, money requests, poor grammar)
+- Trust Score (0-100%)
+- Culture match analysis
 
-> *“Transparency builds trust. Lumina doesn't hide its logic; we visualize the raw JSON-RPC tool calls on-screen natively as the Agents process data.”*
+### 🤝 Human-in-the-Loop Workflow
+```
+[AI Analysis] → [Show Verdict] → [Human Approves] → [Sync to Notion]
+```
+- Transparent decision-making
+- No autonomous "hallucinations"
+- Audit-ready trails
+
+### 📊 Real-Time Agent Visualization
+Watch the AI think:
+- Scraping job postings
+- Calling Gemini 2.5 Flash
+- Logging MCP transactions
+- Syncing structured data
+
+### 🗄️ Auto-Provisioned Workspace
+Lumina creates its own Notion structure:
+- **Career Ledger** - Full job tracking with Trust Score
+- **Talent Pool** - Candidate profiles
+- **Career Roadmaps** - Milestone planning
+- **Agent Audit Log** - Complete AI history
 
 ---
 
-## 🚀 Installation & Local Execution
+## 🛠️ Tech Stack
 
-### 1. The Web Cockpit (Next.js)
-Clone the repository, configure your environment variables, and launch the Sovereign Environment:
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 16, TypeScript, Tailwind, Framer Motion |
+| Auth | Clerk (OAuth + Notion OAuth) |
+| AI | Google Gemini 2.5 Flash |
+| Protocol | Notion Model Context Protocol (MCP) |
+| Scraper | Cheerio + Axios |
+| Database | Notion API |
+
+---
+
+## 📦 Installation
+
 ```bash
+# Clone the repo
 git clone https://github.com/your-username/syndicate-sentinel.git
 cd syndicate-sentinel
+
+# Install dependencies
 npm install
+
+# Configure environment
+cp .env.example .env.local
+# Edit .env.local with your keys
+
+# Run development
 npm run dev
 ```
 
-**Required `.env.local` Variables:**
-```env
-# Google Gemini setup
-GEMINI_API_KEY=your_gemini_flash_key
-# The Internal Notion Integration Token
-NOTION_TOKEN=ntn_your_notion_internal_integration
-```
-
-### 2. The Native Notion MCP Server (Claude Desktop Integration)
-Want to run the Forensic Auditor autonomously via standard MCP `stdio` architecture? Modify your Claude Desktop configuration (`claude_desktop_config.json`) to invoke our server directly:
-
-```json
-{
-  "mcpServers": {
-    "lumina-sovereign": {
-      "command": "npx",
-      "args": [
-        "tsx",
-        "[ABSOLUTE_PATH]/syndicate-sentinel/src/mcp-server.ts"
-      ],
-      "env": {
-        "NOTION_TOKEN": "YOUR_NOTION_TOKEN",
-        "GEMINI_API_KEY": "YOUR_GEMINI_KEY"
-      }
-    }
-  }
-}
-```
-
-Restart Claude, and you can simply prompt: *"Can you run a forensic audit on [URL] and log it to my Lumina Job Ledger?"* Claude will natively invoke the tools provided by the Lumina MCP protocol!
+Open [http://localhost:3000](http://localhost:3000)
 
 ---
-*Built with bleeding-edge intentionality for the Dev.to + Notion MCP Challenge.*
+
+## 🔑 Environment Variables
+
+Create `.env.local` with:
+
+```env
+# Google Gemini
+GEMINI_API_KEY=AIza...
+
+# Notion Internal Integration
+NOTION_TOKEN=ntn_...
+
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
+
+# App URL
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+### Getting Your Keys
+
+**Notion Integration:**
+1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations)
+2. Create new integration
+3. Copy the Internal Integration Token
+
+**Gemini API:**
+1. Visit [aistudio.google.com](https://aistudio.google.com)
+2. Get API Key
+3. Copy the key
+
+**Clerk:**
+1. Create app at [clerk.com](https://clerk.com)
+2. Copy Publishable Key and Secret Key
+
+---
+
+## 🎮 How to Use
+
+### 1. Initial Setup
+1. Sign in with Clerk (any email)
+2. Connect Notion via OAuth
+3. Click **"Provision Workspace"** to auto-create databases
+4. Share the created pages with your Notion integration
+
+### 2. Run Forensic Analysis
+1. Paste any job URL
+2. Click **"Analyze"**
+3. Watch the AI think in real-time
+4. Review the Trust Score and flags
+5. Click **"Approve & Sync to Notion"**
+
+### 3. Track Your Career
+- View all analyzed jobs in the Career Ledger
+- Track interview stages
+- Monitor Trust Scores over time
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    LUMINA ARCHITECTURE                   │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────┐ │
+│  │   Next.js    │────▶│   Notion     │────▶│  Notion  │ │
+│  │  Dashboard   │     │    MCP       │     │   API    │ │
+│  │  (Clerk Auth)│     │   Client     │     │          │ │
+│  └──────────────┘     └──────────────┘     └──────────┘ │
+│         │                    │                    │      │
+│         │              JSON-RPC 2.0              │      │
+│         │                    │                    │      │
+│         ▼                    ▼                    ▼      │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │           Notion Workspace (Blackboard)           │   │
+│  │  • Career Ledger    • Talent Pool    • Roadmaps   │   │
+│  │  • Agent Audit Log  • Strategy Pages             │   │
+│  └──────────────────────────────────────────────────┘   │
+│                                                          │
+│  AI Engine: Google Gemini 2.5 Flash                     │
+│  Scraper: Cheerio + Axios                              │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📁 Project Structure
+
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── notion/
+│   │   │   ├── auth/route.ts    # OAuth flow
+│   │   │   └── callback/route.ts
+│   │   └── sentinel/
+│   │       └── route.ts        # Main API
+│   ├── page.tsx                # Main dashboard
+│   └── layout.tsx
+├── lib/
+│   └── notion-mcp.ts           # MCP client + AI
+└── mcp-server.ts               # Claude Desktop integration
+```
+
+---
+
+## 🎥 Demo
+
+[Insert demo video showing the full workflow]
+
+### What to Show
+
+1. **0:00-0:20** - Sign in, connect Notion
+2. **0:20-0:40** - Provision workspace
+3. **0:40-1:00** - Paste job URL, analyze
+4. **1:00-1:20** - Watch AI think (real-time)
+5. **1:20-1:40** - Approve, sync to Notion
+6. **1:40-2:00** - Open Notion, show structured data
+
+---
+
+## 🏆 Why This Wins
+
+### 1. Originality & Creativity
+- **Forensic job analysis** with Trust Scores
+- **Real-time agent visualization** - show the AI thinking
+- **Human-in-the-loop** - enterprise-ready safety
+
+### 2. Technical Complexity
+- **True MCP integration** (not just API wrapper)
+- **Transaction logging** with full audit trail
+- **Workspace auto-provisioning** - creates databases dynamically
+- **Real-time streaming** of agent actions
+
+### 3. Practical Implementation
+- **Works out of the box** - one-click setup
+- **Production-ready UI** - Glassmorphism design
+- **Actual use case** - helps job seekers avoid scams
+- **Complete flow** - from analysis to Notion sync
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Please read the setup guide and open issues for bugs or features.
+
+---
+
+## 📄 License
+
+MIT - Built for the DEV.to Notion MCP Challenge
+
+---
+
+<div align="center">
+  <p><strong>Built with intentionality for the Notion MCP Challenge</strong></p>
+  <p>Deadline: March 29, 2026</p>
+</div>

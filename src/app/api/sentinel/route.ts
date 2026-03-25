@@ -1,184 +1,163 @@
 import { NextResponse } from "next/server";
-import { runForensicAudit } from "@/lib/intelligence";
+import { NotionMCPClient, runForensicAudit, MCPTransaction } from "@/lib/notion-mcp";
 
 export async function POST(req: Request) {
   const { mode, accessToken, payload } = await req.json();
-  if (!accessToken) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  
+  if (!accessToken) {
+    return NextResponse.json({ success: false, error: "Notion access token required" }, { status: 401 });
+  }
 
-  const headers = {
-    "Authorization": `Bearer ${accessToken}`,
-    "Notion-Version": "2022-06-28",
-    "Content-Type": "application/json",
-  };
+  const mcp = new NotionMCPClient(accessToken);
 
   try {
-    // 🔍 SCAN: Finds the core Career databases
     if (mode === "SCAN_WORKSPACE") {
-      const searchRes = await fetch("https://api.notion.com/v1/search", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ filter: { property: "object", value: "database" } }),
-      });
-      const searchData = await searchRes.json();
-      
-      const findDb = (keywords: string[]) => 
-        searchData.results?.find((d: any) => {
-          const title = d.title?.[0]?.plain_text?.toLowerCase() || "";
-          return keywords.some(k => title.includes(k));
-        });
-
-      const talent = findDb(["talent", "employee", "pool"]);
-      const manifolds = findDb(["manifold", "career", "strategy"]);
-
-      return NextResponse.json({ 
-        success: true, 
-        talentId: talent?.id, 
-        manifoldId: manifolds?.id,
-        connected: !!(talent && manifolds)
+      const setup = await mcp.searchDatabases();
+      return NextResponse.json({
+        success: true,
+        ...setup,
+        connected: !!(setup.jobLedgerId && setup.talentPoolId)
       });
     }
 
-    // 🏗️ INITIALIZE: Creates the databases in Notion
     if (mode === "INITIALIZE_INFRASTRUCTURE") {
-      // 1. Find a parent page to host the databases
-      const pageSearch = await fetch("https://api.notion.com/v1/search", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ filter: { property: "object", value: "page" }, page_size: 1 }),
-      });
-      const pageData = await pageSearch.json();
-      const parentId = pageData.results?.[0]?.id;
-
-      if (!parentId) throw new Error("No shared page found. Please ensure you have shared at least one Notion page with 'Syndicate Sentinel'.");
-
-      // 2. Create Talent Pool
-      const createTalent = await fetch("https://api.notion.com/v1/databases", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          parent: { page_id: parentId },
-          title: [{ text: { content: "Talent Pool" } }],
-          properties: {
-            "Name": { title: {} },
-            "Role": { select: { options: [{ name: "Senior Lead", color: "blue" }, { name: "Junior Dev", color: "green" }] } },
-            "Skills": { multi_select: { options: [{ name: "React" }, { name: "Node.js" }] } }
-          }
-        }),
-      });
-      const talentData = await createTalent.json();
-
-      // 3. Create Career Manifolds
-      const createManifolds = await fetch("https://api.notion.com/v1/databases", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          parent: { page_id: parentId },
-          title: [{ text: { content: "Career Manifolds" } }],
-          properties: {
-            "Name": { title: {} },
-            "Status": { select: { options: [{ name: "Draft", color: "gray" }, { name: "Active", color: "green" }] } }
-          }
-        }),
-      });
-      const manifoldData = await createManifolds.json();
-
-      return NextResponse.json({ 
-        success: true, 
-        talentId: talentData.id, 
-        manifoldId: manifoldData.id 
-      });
-    }
-
-    // 📋 READ: Fetches the Talent Pool
-    if (mode === "READ_TALENT" && payload.talentId) {
-      const res = await fetch(`https://api.notion.com/v1/databases/${payload.talentId}/query`, {
-        method: "POST",
-        headers,
-      });
-      const data = await res.json();
-      return NextResponse.json({ success: true, results: data.results });
-    }
-
-    // 🛠️ DIAGNOSTICS: Check if keys/access are working
-    if (mode === "SYSTEM_DIAGNOSTICS") {
-        return NextResponse.json({ 
-            success: true, 
-            gemini: !!process.env.GEMINI_API_KEY,
-            notion: !!process.env.NOTION_TOKEN,
-            hasAccessToken: !!accessToken 
+      if (!payload.parentPageId) {
+        const searchRes = await fetch("https://api.notion.com/v1/search", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ filter: { property: "object", value: "page" }, page_size: 1 }),
         });
+        const pageData = await searchRes.json();
+        const parentId = pageData.results?.[0]?.id;
+        
+        if (!parentId) {
+          return NextResponse.json({
+            success: false,
+            error: "No shared page found. Please share a page with your Notion integration first."
+          }, { status: 400 });
+        }
+        payload.parentPageId = parentId;
+      }
+
+      const setup = await mcp.initializeWorkspace(payload.parentPageId);
+      return NextResponse.json({
+        success: true,
+        ...setup,
+        transactions: mcp.getTransactions()
+      });
     }
 
-    // 🕵️‍♂️ FORENSIC AUDIT: Deep Scan & Log (HITL Phase 1)
+    if (mode === "READ_DATABASE" && payload.databaseId) {
+      const notion = mcp.getNotionClient();
+      const res = await notion.databases.query({
+        database_id: payload.databaseId,
+        page_size: 20
+      });
+      return NextResponse.json({ success: true, results: res.results });
+    }
+
+    if (mode === "SYSTEM_DIAGNOSTICS") {
+      return NextResponse.json({
+        success: true,
+        gemini: !!process.env.GEMINI_API_KEY,
+        notion: !!process.env.NOTION_TOKEN,
+        hasAccessToken: !!accessToken,
+        mcpEndpoint: "https://mcp.notion.com/mcp"
+      });
+    }
+
     if (mode === "FORENSIC_AUDIT" && payload.url) {
-      // 1. Run Intelligence Engine
+      const transactions: MCPTransaction[] = [];
+
+      const onLog = (tx: MCPTransaction) => {
+        transactions.push(tx);
+      };
+
+      transactions.push({
+        id: `init_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        method: "sentinel.initiate",
+        params: { url: payload.url },
+        thinking: [
+          "🔍 LUMINA FORENSIC SENTINEL ACTIVATED",
+          "Target: " + payload.url,
+          "Initiating deep analysis sequence..."
+        ]
+      });
+
+      transactions.push({
+        id: `scrape_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        method: "web.scrape",
+        params: { url: payload.url },
+        thinking: [
+          "🌐 Scraping job posting content...",
+          "Cross-referencing company domain..."
+        ]
+      });
+
       const analysis = await runForensicAudit(payload.url);
 
-      // 2. Find Database
-      const dbId = payload.dbId; 
-      
-      if (dbId) {
-         // 3. Create Page in Notion with 'Awaiting Review' status (Plan: The Alchemist Stage 1)
-         const res = await fetch("https://api.notion.com/v1/pages", {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            parent: { database_id: dbId },
-            properties: {
-              "Name": { title: [{ text: { content: `${analysis.jobDetails.company}: ${analysis.jobDetails.title}` } }] },
-              "Role": { select: { name: "AWAITING_REVIEW" } }, // Plan: Stage 1 State
-              "Skills": { multi_select: analysis.analysis.flags.slice(0, 5).map(f => ({ name: f.substring(0,20).replace(/[^a-zA-Z0-9 ]/g, '') })) } 
-            },
-            children: [
-              {
-                object: "block",
-                type: "callout",
-                callout: {
-                  rich_text: [{ type: "text", text: { content: `SENTINEL VERDICT: ${analysis.verdict} (${analysis.score}%) - HUMAN APPROVAL REQUIRED` } }],
-                  icon: { emoji: "🛡️" },
-                  color: analysis.score > 80 ? "green_background" : "yellow_background"
-                }
-              },
-              {
-                object: "block",
-                type: "paragraph",
-                paragraph: { rich_text: [{ type: "text", text: { content: `FORENSIC_SUMMARY: ${analysis.jobDetails.summary}` } }] }
-              }
-            ]
-          }),
-        });
-        const data = await res.json();
-        
-        if (!res.ok) {
-            console.error("[NOTION_ERROR]", data);
-            throw new Error(`Notion Sync Failed: ${data.message || 'Unknown Error'}`);
-        }
-
-        return NextResponse.json({ success: true, analysis, url: data.url });
-      }
-      
-      return NextResponse.json({ success: true, analysis, url: null });
-    }
-
-    // 🚀 SYNC: Generate Career Strategy
-    if (mode === "GENERATE_STRATEGY" && payload.manifoldId) {
-      const res = await fetch("https://api.notion.com/v1/pages", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          parent: { database_id: payload.manifoldId },
-          properties: {
-            "Name": { title: [{ text: { content: `Sentinel Strategy: ${payload.targetName}` } }] },
-            "Status": { select: { name: "Draft" } }
-          }
-        }),
+      transactions.push({
+        id: `analyze_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        method: "ai.analyze",
+        params: { url: payload.url },
+        thinking: [
+          "🧠 Gemini 2.5 Flash Analysis",
+          `Verdict: ${analysis.verdict}`,
+          `Trust Score: ${analysis.score}%`,
+          `Flags: ${analysis.analysis.flags.length > 0 ? analysis.analysis.flags.join(", ") : "None"}`
+        ]
       });
-      const data = await res.json();
-      return NextResponse.json({ success: true, url: data.url });
+
+      if (payload.ledgerId) {
+        transactions.push({
+          id: `log_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          method: "notion.create_page",
+          params: { ledgerId: payload.ledgerId },
+          thinking: [
+            "📝 Writing to Notion Career Ledger...",
+            "Creating structured forensic report page..."
+          ]
+        });
+
+        const pageUrl = await mcp.logForensicAudit(
+          payload.ledgerId,
+          analysis,
+          payload.url,
+          onLog
+        );
+
+        transactions.push({
+          id: `complete_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          method: "sentinel.complete",
+          params: {},
+          thinking: [
+            `✅ Forensic audit complete`,
+            `Page created: ${pageUrl}`
+          ]
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        analysis,
+        transactions,
+        pageUrl: payload.ledgerId ? `https://notion.so/${payload.ledgerId.replace(/-/g, '')}` : null
+      });
     }
 
-    return NextResponse.json({ success: false, error: "Invalid Mode" });
+    return NextResponse.json({ success: false, error: `Unknown mode: ${mode}` }, { status: 400 });
+
   } catch (err: any) {
+    console.error("[SENTINEL_API]", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

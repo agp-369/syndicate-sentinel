@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const hasClientId = !!process.env.NOTION_CLIENT_ID;
   const hasClientSecret = !!process.env.NOTION_CLIENT_SECRET;

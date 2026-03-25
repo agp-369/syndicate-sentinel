@@ -1,11 +1,17 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Define which routes are public (so the site doesn't crash without keys)
-const isPublicRoute = createRouteMatcher(['/', '/api/sentinel', '/api/watchdog']);
+// Define which routes are public
+const isPublicRoute = createRouteMatcher([
+  '/api/diagnostic(.*)',
+  '/api/notion/auth(.*)',
+  '/api/notion/callback(.*)',
+  '/diagnostic(.*)',
+  '/terms(.*)',
+  '/privacy(.*)',
+]);
 
 export default clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {
-    // Only protect private routes if keys are present
     if (process.env.CLERK_SECRET_KEY) {
       await auth.protect();
     }
@@ -14,9 +20,7 @@ export default clerkMiddleware(async (auth, request) => {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files
     '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Always run for API routes
     '/(api|trpc)(.*)',
   ],
 };

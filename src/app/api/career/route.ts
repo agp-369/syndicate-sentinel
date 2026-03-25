@@ -5,10 +5,24 @@ import { CareerInfrastructureCreator } from "@/lib/notion-career-infra";
 import { JobRecommendationEngine } from "@/lib/job-engine";
 
 const COOKIE_NAME = "notion_token";
+const PAGES_COOKIE_NAME = "notion_selected_pages";
 
 async function getTokenFromCookie(): Promise<string | null> {
   const cookieStore = await cookies();
   return cookieStore.get(COOKIE_NAME)?.value || null;
+}
+
+async function getSelectedPagesFromCookie(): Promise<string[]> {
+  const cookieStore = await cookies();
+  const pagesCookie = cookieStore.get(PAGES_COOKIE_NAME)?.value;
+  if (pagesCookie) {
+    try {
+      return JSON.parse(pagesCookie);
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 export const dynamic = "force-dynamic";
@@ -35,25 +49,31 @@ export async function POST(req: Request) {
     if (mode === "SETUP") {
       const { parentPageId } = body;
 
-      // First, read user profile from their Notion pages
+      // First, read user profile from their selected Notion pages
       const profileReader = new UserProfileReader(token);
       
-      // Auto-discover profile pages
-      const discoveredPages = await profileReader.discoverProfilePages();
+      // Get selected pages from cookie or use provided page IDs
+      let selectedPages = await getSelectedPagesFromCookie();
       
-      // Read the profile
-      const profile = await profileReader.readUserProfile(discoveredPages);
+      // Read the profile from selected pages
+      const profile = await profileReader.readFromSelectedPages(selectedPages);
+      
+      // If no parent page provided, use the first selected page
+      let targetPageId = parentPageId;
+      if (!targetPageId) {
+        targetPageId = selectedPages[0] || undefined;
+      }
 
-      if (!parentPageId) {
+      if (!targetPageId) {
         return NextResponse.json({
           success: false,
-          error: "parentPageId required for setup",
+          error: "Please select at least one Notion page to create your Career OS",
         }, { status: 400 });
       }
 
       // Create full infrastructure
       const infraCreator = new CareerInfrastructureCreator(token);
-      const infra = await infraCreator.createInfrastructure(parentPageId, profile);
+      const infra = await infraCreator.createInfrastructure(targetPageId, profile);
 
       // Generate job recommendations
       const jobEngine = new JobRecommendationEngine();
@@ -107,12 +127,15 @@ export async function POST(req: Request) {
 
       const profileReader = new UserProfileReader(token);
       
-      if (pageIds) {
-        const profile = await profileReader.readUserProfile(pageIds);
+      // Use selected pages from cookie or provided pageIds
+      const selectedPages = pageIds || await getSelectedPagesFromCookie();
+      
+      if (selectedPages && selectedPages.length > 0) {
+        const profile = await profileReader.readFromSelectedPages(selectedPages);
         return NextResponse.json({ success: true, profile });
       }
 
-      // Auto-discover and read
+      // Fallback to auto-discover
       const discoveredPages = await profileReader.discoverProfilePages();
       const profile = await profileReader.readUserProfile(discoveredPages);
 
@@ -128,8 +151,10 @@ export async function POST(req: Request) {
       const { count = 10 } = body;
 
       const profileReader = new UserProfileReader(token);
-      const discoveredPages = await profileReader.discoverProfilePages();
-      const profile = await profileReader.readUserProfile(discoveredPages);
+      const selectedPages = await getSelectedPagesFromCookie();
+      const profile = selectedPages.length > 0 
+        ? await profileReader.readFromSelectedPages(selectedPages)
+        : await profileReader.readUserProfile(await profileReader.discoverProfilePages());
 
       const jobEngine = new JobRecommendationEngine();
       const jobs = await jobEngine.generateRecommendations(profile, count);
@@ -139,7 +164,8 @@ export async function POST(req: Request) {
         jobs,
         profileMatch: {
           skillsCount: profile.skills.length,
-          experienceYears: profile.experience.length,
+          yearsExperience: profile.yearsOfExperience,
+          currentRole: profile.currentRole,
         },
       });
     }
@@ -147,8 +173,10 @@ export async function POST(req: Request) {
     // ── ANALYZE SKILL GAPS ────────────────────────────────────────────────────
     if (mode === "ANALYZE_SKILLS") {
       const profileReader = new UserProfileReader(token);
-      const discoveredPages = await profileReader.discoverProfilePages();
-      const profile = await profileReader.readUserProfile(discoveredPages);
+      const selectedPages = await getSelectedPagesFromCookie();
+      const profile = selectedPages.length > 0 
+        ? await profileReader.readFromSelectedPages(selectedPages)
+        : await profileReader.readUserProfile(await profileReader.discoverProfilePages());
 
       const jobEngine = new JobRecommendationEngine();
       const gaps = await jobEngine.analyzeSkillGaps(profile);
@@ -157,6 +185,7 @@ export async function POST(req: Request) {
         success: true,
         gaps,
         userSkills: profile.skills,
+        techStack: profile.techStack,
       });
     }
 
@@ -172,8 +201,10 @@ export async function POST(req: Request) {
       }
 
       const profileReader = new UserProfileReader(token);
-      const discoveredPages = await profileReader.discoverProfilePages();
-      const profile = await profileReader.readUserProfile(discoveredPages);
+      const selectedPages = await getSelectedPagesFromCookie();
+      const profile = selectedPages.length > 0 
+        ? await profileReader.readFromSelectedPages(selectedPages)
+        : await profileReader.readUserProfile(await profileReader.discoverProfilePages());
 
       const jobEngine = new JobRecommendationEngine();
       const roadmap = await jobEngine.generateLearningRoadmap(profile, targetSkill);
@@ -197,8 +228,10 @@ export async function POST(req: Request) {
       }
 
       const profileReader = new UserProfileReader(token);
-      const discoveredPages = await profileReader.discoverProfilePages();
-      const profile = await profileReader.readUserProfile(discoveredPages);
+      const selectedPages = await getSelectedPagesFromCookie();
+      const profile = selectedPages.length > 0 
+        ? await profileReader.readFromSelectedPages(selectedPages)
+        : await profileReader.readUserProfile(await profileReader.discoverProfilePages());
 
       const jobEngine = new JobRecommendationEngine();
       const email = await jobEngine.generateEmailPitch(

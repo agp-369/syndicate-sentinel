@@ -27,6 +27,13 @@ export interface UserProfile {
     salary?: string;
     roles?: string[];
   };
+  // Additional fields for dashboard
+  techStack: string[];
+  yearsOfExperience: number;
+  currentRole: string;
+  currentCompany: string;
+  linkedIn?: string;
+  portfolio?: string;
 }
 
 export interface WorkExperience {
@@ -71,6 +78,10 @@ export class UserProfileReader {
       education: [],
       goals: [],
       preferences: {},
+      techStack: [],
+      yearsOfExperience: 0,
+      currentRole: "",
+      currentCompany: "",
     };
 
     // Read each page if IDs provided
@@ -140,6 +151,105 @@ export class UserProfileReader {
     }
 
     return discovered;
+  }
+
+  /**
+   * Read user profile from selected page IDs
+   * Auto-detects page types based on content
+   */
+  async readFromSelectedPages(pageIds: string[]): Promise<UserProfile> {
+    const profile: UserProfile = {
+      name: "",
+      email: "",
+      headline: "",
+      summary: "",
+      skills: [],
+      experience: [],
+      education: [],
+      goals: [],
+      preferences: {},
+      techStack: [],
+      yearsOfExperience: 0,
+      currentRole: "",
+      currentCompany: "",
+    };
+
+    for (const pageId of pageIds) {
+      try {
+        const blocks = await this.getPageBlocks(pageId);
+        const content = this.extractTextFromBlocks(blocks);
+        const contentStr = content.join(" ").toLowerCase();
+        
+        // Get page title
+        const pageTitle = blocks[0]?.id ? await this.getPageTitle(pageId) : "";
+        const titleLower = pageTitle.toLowerCase();
+
+        // Detect page type and extract data
+        if (titleLower.includes("resume") || 
+            titleLower.includes("experience") ||
+            contentStr.includes("work history") ||
+            contentStr.includes("professional experience")) {
+          const resumeData = await this.readResumePage(pageId);
+          Object.assign(profile, resumeData);
+        }
+        
+        if (titleLower.includes("about") || 
+            titleLower.includes("personal") || 
+            titleLower.includes("contact") ||
+            titleLower.includes("profile")) {
+          const personalData = await this.readPersonalPage(pageId);
+          Object.assign(profile, personalData);
+        }
+        
+        if (titleLower.includes("skill") || 
+            titleLower.includes("technology") ||
+            contentStr.includes("tech stack") ||
+            contentStr.includes("proficient in")) {
+          const skills = await this.readSkillsPage(pageId);
+          profile.skills = [...new Set([...profile.skills, ...skills])];
+          profile.techStack = skills;
+        }
+        
+        if (titleLower.includes("goal") || 
+            titleLower.includes("objective") ||
+            titleLower.includes("aspiration")) {
+          const goals = await this.readGoalsPage(pageId);
+          profile.goals = [...new Set([...profile.goals, ...goals])];
+        }
+      } catch (error) {
+        console.error(`Error reading page ${pageId}:`, error);
+      }
+    }
+
+    // Calculate years of experience
+    if (profile.experience.length > 0) {
+      profile.yearsOfExperience = profile.experience.reduce((sum, exp) => {
+        const match = exp.duration.match(/\d+/g);
+        if (match) {
+          return sum + parseInt(match[0]);
+        }
+        return sum + 1;
+      }, 0);
+    }
+
+    // Set current role and company
+    if (profile.experience.length > 0) {
+      profile.currentRole = profile.experience[0].role;
+      profile.currentCompany = profile.experience[0].company;
+    }
+
+    return profile;
+  }
+
+  private async getPageTitle(pageId: string): Promise<string> {
+    try {
+      const page = await this.notion.pages.retrieve({ page_id: pageId }) as any;
+      return page.properties?.title?.title?.[0]?.plain_text ||
+             page.properties?.Name?.title?.[0]?.plain_text ||
+             "";
+    } catch {
+      return "";
+    }
   }
 
   private async readResumePage(pageId: string): Promise<Partial<UserProfile>> {

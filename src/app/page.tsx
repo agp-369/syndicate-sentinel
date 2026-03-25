@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useState, useEffect, Suspense } from "react";
 import { ShieldCheck, GraduationCap, Lock, ArrowRight, Loader2, Sparkles, ExternalLink, Zap, Terminal, Activity, CheckCircle2, Command, Users, BarChart3, Fingerprint, Mic, Moon, Sun, Briefcase, Award, TrendingUp, Trophy, LogOut, Database, Search, ShieldAlert, AlertTriangle, Construction, Bot, Workflow, Settings, Copy, HelpCircle, HardDrive } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,10 +24,103 @@ function SentinelContent() {
   const [forensicResult, setForensicResult] = useState<any>(null);
   const [mcpLogs, setMcpLogs] = useState<{method: string, data: any, timestamp: string}[]>([]);
 
-  // ... (existing useEffect)
+  useEffect(() => {
+    const urlToken = searchParams.get("access_token");
+    const storedToken = localStorage.getItem("notion_access_token");
+    let effectiveToken = "";
+
+    if (urlToken) {
+      localStorage.setItem("notion_access_token", urlToken);
+      effectiveToken = urlToken;
+      setAccessToken(urlToken);
+      window.history.replaceState({}, document.title, "/");
+    } else if (storedToken) {
+      effectiveToken = storedToken;
+      setAccessToken(storedToken);
+    }
+
+    if (effectiveToken && userId) {
+      scanWorkspace(effectiveToken);
+    } else if (userId) {
+      setStep("HANDSHAKE");
+    }
+  }, [searchParams, userId]);
+
+  const addLog = (msg: string) => setLog(prev => [...prev.slice(-4), `> ${msg}`]);
 
   const addMcpLog = (method: string, data: any) => {
     setMcpLogs(prev => [{method, data, timestamp: new Date().toLocaleTimeString()}, ...prev].slice(0, 5));
+  };
+
+  const scanWorkspace = async (token: string) => {
+    setIsSyncing(true);
+    addLog("Scanning Notion Workspace for Infrastructure...");
+    try {
+      const res = await fetch("/api/sentinel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "SCAN_WORKSPACE", accessToken: token })
+      });
+      const data = await res.json();
+      setWorkspace(data);
+      if (data.talentId) fetchTalent(token, data.talentId);
+      setStep("COMMAND");
+      addLog(data.connected ? "Success: Infrastructure Detected." : "Warning: Workspace Empty.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const initializeInfrastructure = async () => {
+    setIsSyncing(true);
+    addLog("Autonomous Architect: Building Notion Repositories...");
+    try {
+      const res = await fetch("/api/sentinel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "INITIALIZE_INFRASTRUCTURE", accessToken })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog("Infrastructure Realized.");
+        scanWorkspace(accessToken);
+      } else {
+        alert(data.error || "Initialization failed.");
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const fetchTalent = async (token: string, tId: string) => {
+    const res = await fetch("/api/sentinel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "READ_TALENT", accessToken: token, payload: { talentId: tId } })
+    });
+    const data = await res.json();
+    if (data.success) setTalentPool(data.results);
+  };
+
+  const generateStrategy = async (employee: any) => {
+    const manifoldId = workspace?.manifoldId;
+    const name = employee.properties?.Name?.title?.[0]?.plain_text || "Employee";
+    setIsSyncing(true);
+    addLog(`Synthesizing Strategy for ${name}...`);
+    try {
+      const res = await fetch("/api/sentinel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "GENERATE_STRATEGY", accessToken, payload: { manifoldId, targetName: name } })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog(`Strategy Published for ${name}.`);
+        window.open(data.url, "_blank");
+      }
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleForensicScan = async () => {
@@ -60,8 +155,6 @@ function SentinelContent() {
       setIsSyncing(false);
     }
   };
-
-  // ... (rest of helper functions)
 
   if (!isLoaded) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-indigo-500" /></div>;
 

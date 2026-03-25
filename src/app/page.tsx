@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth, SignInButton, UserButton, useUser } from "@clerk/nextjs";
-import { useSearchParams } from "next/navigation";
 
 interface MCPTransaction {
   id: string;
@@ -50,14 +49,12 @@ interface WorkspaceSetup {
 }
 
 export function HomeContent() {
-  const searchParams = useSearchParams();
   const { isLoaded, userId } = useAuth();
   const { user } = useUser();
 
   const [step, setStep] = useState<"IDENTITY" | "HANDSHAKE" | "COMMAND">("IDENTITY");
   const [isSyncing, setIsSyncing] = useState(false);
   const [logs, setLogs] = useState<string[]>(["LUMINA OS v2.0 // INITIALIZING..."]);
-  const [accessToken, setAccessToken] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceSetup>({});
   const [forensicUrl, setForensicUrl] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ForensicResult | null>(null);
@@ -76,61 +73,46 @@ export function HomeContent() {
   }, [transactions]);
 
   useEffect(() => {
-    const urlToken = searchParams.get("access_token");
-    const storedToken = localStorage.getItem("notion_access_token");
-    let effectiveToken = "";
-
-    if (urlToken) {
-      localStorage.setItem("notion_access_token", urlToken);
-      effectiveToken = urlToken;
-      setAccessToken(urlToken);
-      window.history.replaceState({}, document.title, "/");
-    } else if (storedToken) {
-      effectiveToken = storedToken;
-      setAccessToken(storedToken);
+    if (userId) {
+      checkConnection();
+    } else if (isLoaded) {
+      setStep("IDENTITY");
     }
+  }, [userId, isLoaded]);
 
-    if (effectiveToken && userId) {
-      scanWorkspace(effectiveToken);
-    } else if (userId) {
+  const checkConnection = async () => {
+    try {
+      const res = await fetch("/api/sentinel");
+      const data = await res.json();
+      if (data.connected) {
+        setStep("COMMAND");
+        scanWorkspace();
+      } else {
+        setStep("HANDSHAKE");
+      }
+    } catch (e) {
       setStep("HANDSHAKE");
     }
-  }, [searchParams, userId]);
+  };
 
   const addLog = useCallback((msg: string) => {
     setLogs(prev => [...prev.slice(-6), `> ${msg}`]);
   }, []);
 
-  const runDiagnostics = async (token: string) => {
-    try {
-      const res = await fetch("/api/sentinel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "SYSTEM_DIAGNOSTICS", accessToken: token })
-      });
-      const data = await res.json();
-      if (!data.gemini) setSystemAlert("WARNING: Gemini API Key missing");
-      if (!data.notion) setSystemAlert("WARNING: Notion Token missing");
-    } catch (e) {
-      setSystemAlert("CRITICAL: Sentinel API unreachable");
-    }
-  };
-
-  const scanWorkspace = async (token: string) => {
+  const scanWorkspace = async () => {
     setIsSyncing(true);
     addLog("SCANNING NOTION WORKSPACE...");
     try {
       const res = await fetch("/api/sentinel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "SCAN_WORKSPACE", accessToken: token })
+        body: JSON.stringify({ mode: "SCAN_WORKSPACE" })
       });
       const data = await res.json();
       setWorkspace(data);
       if (data.jobLedgerId) {
-        fetchCareerEntries(token, data.jobLedgerId);
+        fetchCareerEntries(data.jobLedgerId);
       }
-      setStep("COMMAND");
       addLog(data.connected ? "WORKSPACE DETECTED" : "NO WORKSPACE FOUND");
     } catch (e: any) {
       addLog(`ERROR: ${e.message}`);
@@ -139,12 +121,12 @@ export function HomeContent() {
     }
   };
 
-  const fetchCareerEntries = async (token: string, ledgerId: string) => {
+  const fetchCareerEntries = async (ledgerId: string) => {
     try {
       const res = await fetch("/api/sentinel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "READ_DATABASE", accessToken: token, payload: { databaseId: ledgerId } })
+        body: JSON.stringify({ mode: "READ_DATABASE", payload: { databaseId: ledgerId } })
       });
       const data = await res.json();
       if (data.success) {
@@ -162,7 +144,7 @@ export function HomeContent() {
       const res = await fetch("/api/sentinel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "INITIALIZE_INFRASTRUCTURE", accessToken })
+        body: JSON.stringify({ mode: "INITIALIZE_INFRASTRUCTURE" })
       });
       const data = await res.json();
       if (data.success) {
@@ -194,21 +176,16 @@ export function HomeContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "FORENSIC_AUDIT",
-          accessToken,
           payload: { url: forensicUrl, ledgerId: workspace.jobLedgerId }
         })
       });
 
       const data = await res.json();
-      
-      if (data.transactions) {
-        setTransactions(data.transactions);
-      }
 
       if (data.success && data.analysis) {
         setAnalysisResult(data.analysis);
         setPendingApproval(data.analysis);
-        addLog("ANALYSIS COMPLETE - AWAITING APPROVAL");
+        addLog("ANALYSIS COMPLETE");
       } else {
         throw new Error(data.error || "Analysis failed");
       }
@@ -221,7 +198,7 @@ export function HomeContent() {
   };
 
   const approveAndSync = async () => {
-    if (!pendingApproval || !workspace.jobLedgerId) return;
+    if (!analysisResult || !workspace.jobLedgerId) return;
 
     setIsSyncing(true);
     addLog("SYNCING TO NOTION...");
@@ -232,7 +209,6 @@ export function HomeContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "FORENSIC_AUDIT",
-          accessToken,
           payload: { url: forensicUrl, ledgerId: workspace.jobLedgerId }
         })
       });
@@ -244,9 +220,11 @@ export function HomeContent() {
         if (data.pageUrl) {
           window.open(data.pageUrl, "_blank");
         }
-        fetchCareerEntries(accessToken, workspace.jobLedgerId);
+        fetchCareerEntries(workspace.jobLedgerId);
         setPendingApproval(null);
-        setAnalysisResult(data.analysis);
+        addLog("DONE!");
+      } else {
+        addLog(`SYNC ERROR: ${data.error}`);
       }
     } catch (e: any) {
       addLog(`SYNC ERROR: ${e.message}`);
@@ -380,7 +358,11 @@ export function HomeContent() {
               </div>
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => { localStorage.removeItem("notion_access_token"); setStep("HANDSHAKE"); }}
+                  onClick={async () => {
+                    await fetch("/api/notion/logout", { method: "POST" });
+                    setStep("HANDSHAKE");
+                    setWorkspace({});
+                  }}
                   className="p-3 text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
                 >
                   <LogOut size={18} />

@@ -4,13 +4,15 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
 
-  if (!code) return NextResponse.json({ error: "No code provided" }, { status: 400 });
+  if (!code)
+    return NextResponse.json({ error: "No code provided" }, { status: 400 });
 
-  // Exchange code for Access Token
   const response = await fetch("https://api.notion.com/v1/oauth/token", {
     method: "POST",
     headers: {
-      "Authorization": `Basic ${Buffer.from(`${process.env.NOTION_CLIENT_ID}:${process.env.NOTION_CLIENT_SECRET}`).toString("base64")}`,
+      Authorization: `Basic ${Buffer.from(
+        `${process.env.NOTION_CLIENT_ID}:${process.env.NOTION_CLIENT_SECRET}`
+      ).toString("base64")}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -21,10 +23,19 @@ export async function GET(req: Request) {
   });
 
   const data = await response.json();
+  if (data.error)
+    return NextResponse.json({ error: data.error }, { status: 400 });
 
-  if (data.error) return NextResponse.json({ error: data.error }, { status: 400 });
-
-  // Redirect back to dashboard with the token (In a real app, you'd store this in a secure cookie or database)
-  // For the hackathon, we redirect to the home page with a success signal.
-  return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/?notion_connected=true&access_token=${data.access_token}`);
+  // Store the token in an httpOnly cookie — never exposed in URLs or localStorage
+  const redirect = NextResponse.redirect(
+    `${process.env.NEXT_PUBLIC_APP_URL}/?notion_connected=true`
+  );
+  redirect.cookies.set("notion_token", data.access_token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    path: "/",
+  });
+  return redirect;
 }

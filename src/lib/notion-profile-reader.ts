@@ -236,6 +236,7 @@ export class UserProfileReader {
       }
     }
 
+    const contentStr = content.join(" ").toLowerCase();
     // Calculate years of experience more accurately
     if (profile.experience.length > 0) {
       let totalYears = 0;

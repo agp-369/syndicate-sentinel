@@ -152,8 +152,8 @@ export async function POST(req: Request) {
       // 4. Fire-and-forget background population (Optional - but let's do minimal in-request)
       // For Hobby plan, we just return now and let the user 'refresh' to see more data
       // OR do a very small set of parallel writes
-      if (infra.jobs && jobs.length > 0) {
-        await Promise.all(jobs.map(j => infraCreator.addJobPage(infra.jobs, j).catch(e => console.error("Job write failed", e))));
+      if (infra.jobsSectionId && jobs.length > 0) {
+        await Promise.all(jobs.map(j => infraCreator.addJobPage(infra.jobsSectionId, j).catch(e => console.error("Job write failed", e))));
       }
 
       return NextResponse.json({

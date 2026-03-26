@@ -153,7 +153,10 @@ export async function POST(req: Request) {
       // For Hobby plan, we just return now and let the user 'refresh' to see more data
       // OR do a very small set of parallel writes
       if (infra.jobsSectionId && jobs.length > 0) {
-        await Promise.all(jobs.map(j => infraCreator.addJobPage(infra.jobsSectionId, j).catch(e => console.error("Job write failed", e))));
+        await Promise.all(jobs.map(j => infraCreator.addJobPage(infra.jobsSectionId, {
+          ...j,
+          status: "researching"
+        }).catch(e => console.error("Job write failed", e))));
       }
 
       return NextResponse.json({

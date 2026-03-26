@@ -18,6 +18,7 @@ interface NotionPage {
   id: string;
   title: string;
   url: string;
+  type: "page" | "database";
   lastEdited: string;
   icon: string | null;
   parentId: string | null;

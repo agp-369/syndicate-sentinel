@@ -113,6 +113,7 @@ export function AgentOSContent() {
   const [setupComplete, setSetupComplete] = useState(false);
   const [notionConnected, setNotionConnected] = useState(false);
   const [infraCreated, setInfraCreated] = useState(false);
+  const [careerPageId, setCareerPageId] = useState<string | null>(null);
   const [forensicUrl, setForensicUrl] = useState("");
   const [forensicResult, setForensicResult] = useState<ForensicReport | null>(null);
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
@@ -133,6 +134,35 @@ export function AgentOSContent() {
     if (userId) checkConnection();
   }, [userId]);
 
+  const [isScanning, setIsScanning] = useState(false);
+
+  const runAutoScan = async () => {
+    if (!infraCreated) return;
+    setIsScanning(true);
+    addLog("🔬 Watchdog starting automated forensic scan of all jobs...");
+    
+    try {
+      const res = await fetch("/api/watchdog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ careerPageId, profile })
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        addLog(`✅ Scan complete. Processed ${data.processedCount} new jobs.`);
+        // Reload data to show new reports
+        await loadExistingData();
+      } else {
+        addLog(`❌ Scan failed: ${data.error}`);
+      }
+    } catch (e) {
+      addLog(`❌ Scan error: ${e}`);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   const checkConnection = async () => {
     try {
       const res = await fetch("/api/sentinel");
@@ -142,6 +172,7 @@ export function AgentOSContent() {
       
       if (data.connected) {
         loadNotionPages();
+        if (data.careerPageId) setCareerPageId(data.careerPageId);
         if (data.setupComplete) {
           setSetupComplete(true);
           await loadExistingData();
@@ -281,6 +312,7 @@ export function AgentOSContent() {
         setProfile(data.profile);
         setSetupComplete(true);
         setInfraCreated(true);
+        if (data.infrastructure?.careerPageId) setCareerPageId(data.infrastructure.careerPageId);
         addLog(`✅ Forensic Career OS Ready!`);
         addLog(`📊 ${data.stats.jobsCreated} jobs analyzed`);
         addLog(`🧬 ${data.stats.skillsAnalyzed} skills DNA mapped`);
@@ -331,6 +363,7 @@ export function AgentOSContent() {
         setProfile(data.profile);
         setSetupComplete(true);
         setInfraCreated(true);
+        if (data.infrastructure?.careerPageId) setCareerPageId(data.infrastructure.careerPageId);
         addLog(`✅ Forensic Career OS Ready!`);
         addLog(`📊 ${data.stats.jobsCreated} jobs analyzed`);
         addLog(`🧬 ${data.stats.skillsAnalyzed} skills DNA mapped`);
@@ -1184,7 +1217,17 @@ export function AgentOSContent() {
           {activeTab === "research" && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               <div className="bg-slate-900/50 rounded-2xl border border-white/5 p-6">
-                <h3 className="font-bold text-white mb-4 flex items-center gap-2"><Shield className="text-cyan-400" /> Forensic Job Analysis</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-white flex items-center gap-2"><Shield className="text-cyan-400" /> Forensic Job Analysis</h3>
+                  <button 
+                    onClick={runAutoScan} 
+                    disabled={isScanning || !infraCreated}
+                    className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 disabled:from-slate-700 disabled:to-slate-700 text-white rounded-lg text-xs font-black flex items-center gap-2 transition-all duration-150 cursor-pointer shadow-lg shadow-indigo-500/20"
+                  >
+                    {isScanning ? <RefreshCw className="animate-spin" size={14} /> : <Zap size={14} />}
+                    {isScanning ? "Scanning Database..." : "Auto-Scan Notion DB"}
+                  </button>
+                </div>
                 <div className="flex gap-4">
                   <input type="text" placeholder="Paste job URL for forensic analysis..." value={forensicUrl} onChange={(e) => setForensicUrl(e.target.value)} className="flex-1 bg-slate-800 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 focus:outline-none transition-colors cursor-text" />
                   <button onClick={() => { if (forensicUrl) runForensicAnalysis(forensicUrl); }} disabled={isLoading || !forensicUrl} className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-all duration-150 cursor-pointer">

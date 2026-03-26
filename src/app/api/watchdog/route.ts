@@ -1,40 +1,36 @@
 import { NextResponse } from "next/server";
 import { SentinelWatchdog } from "@/lib/watchdog";
+import { cookies } from "next/headers";
 
 export const dynamic = 'force-dynamic';
 
+const COOKIE_NAME = "notion_token";
+
 export async function POST(req: Request) {
   try {
-    const { notionToken, databaseId, profileId } = await req.json();
+    const body = await req.json();
+    const { careerPageId, profile } = body;
     
-    if (!notionToken || !databaseId) {
-      return NextResponse.json({ error: "UPLINK_CONFIG_MISSING" }, { status: 400 });
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    
+    if (!token || !careerPageId) {
+      return NextResponse.json({ error: "NOTION_TOKEN_MISSING" }, { status: 400 });
     }
 
-    const watchdog = new SentinelWatchdog(notionToken);
+    const watchdog = new SentinelWatchdog(token);
 
-    // 1. SCAN FOR NEW LEADS (Status is Empty)
-    console.log("WATCHDOG_POLL: Checking for new leads...");
-    const newLeads = await watchdog.checkForNewLeads(databaseId);
-    for (const lead of newLeads) {
-      await watchdog.processLead(lead.id, profileId);
-    }
-
-    // 2. SCAN FOR APPROVALS (Approved is checked)
-    console.log("WATCHDOG_POLL: Checking for approvals...");
-    const approvedLeads = await watchdog.checkForApprovals(databaseId);
-    for (const lead of approvedLeads) {
-      await watchdog.finalizeLead(lead.id);
-    }
+    console.log("[WATCHDOG_API] Starting full forensic scan of Jobs section...");
+    const processed = await watchdog.runFullScan(careerPageId, profile);
 
     return NextResponse.json({ 
       timestamp: new Date().toISOString(),
-      processed: newLeads.length, 
-      finalized: approvedLeads.length 
+      processedCount: processed.length,
+      processed: processed
     });
 
   } catch (error: any) {
-    console.error("WATCHDOG_CRITICAL_FAILURE:", error.message);
+    console.error("[WATCHDOG_API] Critical Failure:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

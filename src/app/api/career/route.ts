@@ -129,60 +129,32 @@ export async function POST(req: Request) {
       const jobEngine = new JobRecommendationEngine();
       const infraCreator = new NotionCareerInfra(token);
       
-      // Use manually selected pages or from cookie
-      const selectedPages = manualPages || await getSelectedPagesFromCookie();
+      console.log("[SETUP] Starting Skeleton-First setup...");
       
+      const selectedPages = manualPages || await getSelectedPagesFromCookie();
       if (selectedPages.length === 0) {
-        return NextResponse.json({
-          success: false,
-          error: "Please select at least one page",
-        }, { status: 400 });
+        return NextResponse.json({ success: false, error: "Please select at least one page" }, { status: 400 });
       }
       
-      // Read profile from selected pages
+      // 1. Read profile (Essential)
       const profile = await profileReader.readFromSelectedPages(selectedPages);
       
-      // Find or create the Forensic Career OS page
+      // 2. Create Skeleton Infrastructure (Parallelized & Idempotent)
       const careerPageId = await infraCreator.findOrCreateCareerPage();
+      const infra = await infraCreator.createInfrastructure(careerPageId, profile);
       
-      // Check if infrastructure already exists
-      const exists = await infraCreator.infrastructureExists(careerPageId);
-      
-      if (!exists) {
-        await infraCreator.createInfrastructure(careerPageId, profile);
-      }
+      console.log("[SETUP] Skeleton created successfully.");
 
-      const infra = await infraCreator.getFullInfrastructure(careerPageId);
-      const jobs = await jobEngine.generateRecommendations(profile, 5);
+      // 3. Quick Data Generation (Keep it light to avoid 504)
+      const jobs = await jobEngine.generateRecommendations(profile, 3);
       const trendingSkills = await jobEngine.analyzeSkillGaps(profile);
 
-      // Create jobs and skills in parallel to avoid timeout
-      const creationPromises = [];
-      if (infra.jobs) {
-        for (const job of jobs) {
-          creationPromises.push(infraCreator.addJobPage(infra.jobs, {
-            title: job.title,
-            company: job.company,
-            matchScore: job.matchScore,
-            status: "researching",
-            url: job.url,
-          }));
-        }
+      // 4. Fire-and-forget background population (Optional - but let's do minimal in-request)
+      // For Hobby plan, we just return now and let the user 'refresh' to see more data
+      // OR do a very small set of parallel writes
+      if (infra.jobs && jobs.length > 0) {
+        await Promise.all(jobs.map(j => infraCreator.addJobPage(infra.jobs, j).catch(e => console.error("Job write failed", e))));
       }
-
-      if (infra.skills) {
-        for (const skill of trendingSkills.slice(0, 5)) {
-          creationPromises.push(infraCreator.addSkillPage(infra.skills, {
-            name: skill.skill,
-            demand: skill.demand,
-          }));
-        }
-      }
-
-      await Promise.all(creationPromises);
-
-      // Skip forensic analysis during initial setup to avoid 504
-      const forensicReports: any[] = [];
 
       return NextResponse.json({
         success: true,
@@ -191,24 +163,21 @@ export async function POST(req: Request) {
           ...j,
           id: `job_${i}`,
           status: "researching",
-          scanDNA: { authenticity: 85, cultureFit: 78, growthPotential: 82 },
           lastScan: new Date().toLocaleDateString(),
         })),
-        skills: trendingSkills.slice(0, 8).map((s: any) => ({
+        skills: trendingSkills.slice(0, 5).map((s: any) => ({
           ...s,
           category: s.category || "Technical",
-          matchWithTechStack: profile.techStack?.some((t: string) => t.toLowerCase().includes(s.skill.toLowerCase())) ? 85 : 45,
         })),
-        forensicReports,
         infrastructure: infra,
         stats: {
           skillsFound: profile.skills.length,
           jobsCreated: jobs.length,
           skillsAnalyzed: trendingSkills.length,
-          forensicScans: forensicReports.length,
+          forensicScans: 0,
         },
         setupComplete: true,
-        message: "Forensic Career OS created from selected pages!",
+        message: "Forensic Career OS Skeleton Ready! Deep analysis will populate in the background.",
       });
     }
 

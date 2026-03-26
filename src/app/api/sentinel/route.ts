@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/sentinel
- * Check if Notion is connected and if infra exists
+ * Check if Notion is connected and if infra exists (Read-only)
  */
 export async function GET() {
   const token = await getTokenFromCookie();
@@ -142,7 +142,13 @@ export async function GET() {
 
   try {
     const infraCreator = new NotionCareerInfra(token);
-    const careerPageId = await infraCreator.findOrCreateCareerPage();
+    // ONLY SEARCH, do not create
+    const careerPageId = await infraCreator.findCareerPage();
+    
+    if (!careerPageId) {
+      return NextResponse.json({ connected: true, infraCreated: false });
+    }
+
     const infraCreated = await infraCreator.infrastructureExists(careerPageId);
     
     return NextResponse.json({
@@ -152,6 +158,7 @@ export async function GET() {
       setupComplete: infraCreated
     });
   } catch (err) {
+    console.error("[SENTINEL_GET]", err);
     return NextResponse.json({ connected: true, infraCreated: false });
   }
 }

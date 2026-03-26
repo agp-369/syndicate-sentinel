@@ -22,22 +22,35 @@ export class NotionCareerInfra {
     this.notion = new Client({ auth: token });
   }
 
-  async findOrCreateCareerPage(): Promise<string> {
-    const search = await this.notion.search({
-      query: "Forensic Career OS",
-      filter: { property: "object", value: "page" },
-      page_size: 10,
-    });
-
-    for (const page of search.results as any[]) {
-      const title = page.properties?.title?.title?.[0]?.plain_text || "";
-      if (title.toLowerCase().includes("forensic career os") || title.toLowerCase().includes("agent career os")) {
-        return page.id;
-      }
-    }
-
-    // Try to create at workspace root first
+  async findCareerPage(): Promise<string | null> {
     try {
+      const search = await this.notion.search({
+        query: "Forensic Career OS",
+        filter: { property: "object", value: "page" },
+        page_size: 5,
+      });
+
+      for (const page of search.results as any[]) {
+        const title = page.properties?.title?.title?.[0]?.plain_text || 
+                      page.properties?.Name?.title?.[0]?.plain_text || "";
+        if (title.toLowerCase().includes("forensic career os") || title.toLowerCase().includes("agent career os")) {
+          return page.id;
+        }
+      }
+      return null;
+    } catch (err) {
+      console.error("Error finding career page:", err);
+      return null;
+    }
+  }
+
+  async findOrCreateCareerPage(): Promise<string> {
+    const existingId = await this.findCareerPage();
+    if (existingId) return existingId;
+
+    // Try to create at workspace root
+    try {
+      console.log("Creating Career OS at workspace root...");
       const newPage = await this.notion.pages.create({
         parent: { type: "workspace", workspace: true } as any,
         icon: { emoji: "🔍" },
@@ -47,9 +60,7 @@ export class NotionCareerInfra {
       });
       return newPage.id;
     } catch (err) {
-      console.log("Failed to create at workspace root, trying shared pages...");
-      
-      // Fallback: Create under the first available shared page
+      console.log("Workspace root denied, falling back to shared pages...");
       const sharedPages = await this.notion.search({
         filter: { property: "object", value: "page" },
         page_size: 1,
@@ -66,79 +77,74 @@ export class NotionCareerInfra {
         });
         return newPage.id;
       }
-      
-      throw new Error("Could not create Career OS page. Please ensure you have shared at least one page with the integration.");
-    }
-  }
-
-  async infrastructureExists(careerPageId: string): Promise<boolean> {
-    try {
-      const children = await this.notion.blocks.children.list({
-        block_id: careerPageId,
-        page_size: 50,
-      });
-
-      for (const block of children.results as any[]) {
-        if (block.type === "child_page") {
-          const title = block.child_page?.title || "";
-          if (title.includes("Jobs") && title.includes("Skills")) {
-            return true;
-          }
-        }
-      }
-      return false;
-    } catch {
-      return false;
+      throw new Error("Could not create Career OS. Please share at least one page with the integration.");
     }
   }
 
   async createInfrastructure(careerPageId: string, profile: UserProfile): Promise<CareerInfrastructure> {
+    // 1. Get existing sections to avoid duplicates
+    const existing = await this.getFullInfrastructure(careerPageId);
+    
     const infra: CareerInfrastructure = {
       careerPageId,
-      profilePageId: "",
-      jobsSectionId: "",
-      skillsSectionId: "",
-      roadmapsSectionId: "",
-      researchSectionId: "",
+      profilePageId: existing.profile || "",
+      jobsSectionId: existing.jobs || "",
+      skillsSectionId: existing.skills || "",
+      roadmapsSectionId: existing.roadmaps || "",
+      researchSectionId: existing.research || "",
     };
 
-    // Add minimal welcome content
-    await this.addWelcomeContent(careerPageId, profile);
+    // 2. Add welcome only if new
+    if (Object.keys(existing).length === 0) {
+      await this.addWelcomeContent(careerPageId, profile);
+    }
 
-    // Create sub-pages in parallel to save time
-    const [profilePage, jobsPage, skillsPage, roadmapsPage, researchPage] = await Promise.all([
-      this.notion.pages.create({
+    // 3. Create missing pages only
+    const creationTasks = [];
+
+    if (!infra.profilePageId) {
+      creationTasks.push(this.notion.pages.create({
         parent: { page_id: careerPageId },
         icon: { emoji: "👤" },
         properties: { title: { title: [{ text: { content: "Profile" } }] } },
-      }),
-      this.notion.pages.create({
+      }).then(p => { infra.profilePageId = p.id; }));
+    }
+
+    if (!infra.jobsSectionId) {
+      creationTasks.push(this.notion.pages.create({
         parent: { page_id: careerPageId },
         icon: { emoji: "💼" },
         properties: { title: { title: [{ text: { content: "Jobs" } }] } },
-      }),
-      this.notion.pages.create({
+      }).then(p => { infra.jobsSectionId = p.id; }));
+    }
+
+    if (!infra.skillsSectionId) {
+      creationTasks.push(this.notion.pages.create({
         parent: { page_id: careerPageId },
         icon: { emoji: "🛠️" },
         properties: { title: { title: [{ text: { content: "Skills" } }] } },
-      }),
-      this.notion.pages.create({
+      }).then(p => { infra.skillsSectionId = p.id; }));
+    }
+
+    if (!infra.roadmapsSectionId) {
+      creationTasks.push(this.notion.pages.create({
         parent: { page_id: careerPageId },
         icon: { emoji: "🗺️" },
         properties: { title: { title: [{ text: { content: "Learning Roadmaps" } }] } },
-      }),
-      this.notion.pages.create({
+      }).then(p => { infra.roadmapsSectionId = p.id; }));
+    }
+
+    if (!infra.researchSectionId) {
+      creationTasks.push(this.notion.pages.create({
         parent: { page_id: careerPageId },
         icon: { emoji: "🔬" },
         properties: { title: { title: [{ text: { content: "Forensic Research" } }] } },
-      })
-    ]);
+      }).then(p => { infra.researchSectionId = p.id; }));
+    }
 
-    infra.profilePageId = profilePage.id;
-    infra.jobsSectionId = jobsPage.id;
-    infra.skillsSectionId = skillsPage.id;
-    infra.roadmapsSectionId = roadmapsPage.id;
-    infra.researchSectionId = researchPage.id;
+    if (creationTasks.length > 0) {
+      await Promise.all(creationTasks);
+    }
 
     return infra;
   }

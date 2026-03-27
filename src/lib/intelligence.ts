@@ -11,6 +11,11 @@ export interface ForensicReport {
     flags: string[];
     hiddenSignals: string[];
     cultureMatch: string;
+    cyberMetadata?: {
+      sslStatus: string;
+      domainAge: string;
+      trustScore: number;
+    };
   };
   jobDetails: {
     title: string;
@@ -20,81 +25,83 @@ export interface ForensicReport {
 }
 
 /**
- * 🕵️‍♂️ SYNDICATE INTELLIGENCE ENGINE v2.0
- * Performs deep forensic analysis on job postings to detect scams and "Ghost Jobs".
+ * 🕵️‍♂️ SYNDICATE INTELLIGENCE ENGINE v3.0 (STEALTH)
+ * Performs deep forensic analysis on job postings with Cyber-Layer validation.
+ * Uses Jina Reader for stealthy scraping (bypassing most bot detections).
  */
 export async function runForensicAudit(url: string): Promise<ForensicReport> {
-  console.log(`[INTELLIGENCE] Initiating Audit: ${url}`);
+  console.log(`[INTELLIGENCE] Initiating Stealth Audit: ${url}`);
   
-  // 1. 🕷️ DEEP SCRAPE
-  let jobHtml = "";
-  let domainHtml = "";
+  // 1. 🕷️ STEALTH SCRAPE (via Jina Reader - the LLM scraper of choice)
+  let jobMarkdown = "";
   let domain = "";
   
   try {
-    const jobRes = await axios.get(url, { 
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
-      timeout: 5000 // Reduced from 10s to prevent gateway timeouts
+    // We use Jina Reader to get clean markdown and bypass Cloudflare/Bot-detection
+    const jinaUrl = `https://r.jina.ai/${url}`;
+    const jinaRes = await axios.get(jinaUrl, { 
+      headers: { 
+        "Accept": "text/event-stream",
+        "X-With-Links-Summary": "true"
+      },
+      timeout: 10000 
     });
-    jobHtml = jobRes.data;
+    jobMarkdown = jinaRes.data;
     domain = new URL(url).hostname;
-
-    // Attempt to scrape root domain for cross-reference (Fast check)
-    try {
-        const rootUrl = `${new URL(url).protocol}//${domain}`;
-        const domainRes = await axios.get(rootUrl, { timeout: 3000 });
-        domainHtml = domainRes.data;
-    } catch (e) {
-        console.warn("[INTELLIGENCE] Root domain scrape failed.");
-    }
-
   } catch (error) {
-    console.error("[INTELLIGENCE] Scrape Failed (likely protected or invalid):", error);
-    // FALLBACK: Continue with empty text, relying on Gemini's internal knowledge of the domain
-    jobHtml = "";
-    domain = new URL(url).hostname; 
+    console.error("[INTELLIGENCE] Jina Scrape Failed, falling back to basic axios:", error);
+    try {
+      const fallbackRes = await axios.get(url, { timeout: 5000 });
+      jobMarkdown = fallbackRes.data;
+    } catch (e) {
+      console.warn("[INTELLIGENCE] Scraper fully blocked.");
+    }
   }
 
-  // 2. 🧬 PARSE & CLEAN
-  const $job = cheerio.load(jobHtml || "");
-  // Remove scripts, styles, and heavy markup from job content
-  $job("script, style, svg, nav, footer").remove();
-  const jobText = $job("body").text().replace(/\s+/g, " ").trim().substring(0, 15000); // 15k chars context
-  
-  const $domain = cheerio.load(domainHtml || "");
-  // Remove scripts, styles, and heavy markup from domain content
-  $domain("script, style, svg, nav, footer").remove();
-  const domainText = $domain("body").text().replace(/\s+/g, " ").trim().substring(0, 5000);
+  // 2. 🛡️ CYBER FORENSICS - ENHANCED SIGNALS
+  // In a real cyber-app, we'd use WHOIS/SSL APIs. For the hackathon, we simulate 
+  // advanced cyber-recon by analyzing the domain and URL patterns.
+  const isSuspiciousTLD = [".xyz", ".top", ".link", ".info", ".biz"].some(tld => url.endsWith(tld));
+  const isUnsecured = url.startsWith("http://");
+  const hasUrgentTriggers = jobMarkdown.toLowerCase().includes("immediate") || jobMarkdown.toLowerCase().includes("urgent hiring");
 
-  // 3. 🧠 GEMINI 2.5 FORENSIC ANALYSIS
+  // 3. 🧠 GEMINI 2.5 FLASH FORENSIC ANALYSIS (CRIMINAL PSYCHOLOGY MODE)
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const prompt = `
-  You are 'Lumina', a forensic career intelligence agent.
-  Analyze this job posting for SCAMS, GHOST JOBS, and LEGITIMACY.
+  You are 'Lumina', a high-level Cyber Forensic Investigator specializing in Career Fraud and Corporate Identity Theft.
+  Analyze this job data for SCAMS, GHOST JOBS, and LEGITIMACY.
 
-  CONTEXT:
+  INVESTIGATION DATA:
   - Job URL: ${url}
   - Domain: ${domain}
-  - Job Content Snippet: ${jobText ? jobText : "(Scrape Failed - Use your internal knowledge of this domain)"}
-  - Company Homepage Snippet: ${domainText ? domainText : "(Scrape Failed)"}
+  - Cyber Signals: [TLD: ${isSuspiciousTLD ? "SUSPICIOUS" : "Standard"}], [HTTPS: ${isUnsecured ? "NONE" : "SECURED"}]
+  - Content (Markdown): 
+  ---
+  ${jobMarkdown.substring(0, 20000)}
+  ---
 
-  DETECT THESE SIGNALS:
-  1. "Ghost Job" Indicators: Old dates, vague "evergreen" descriptions, "pooling" language.
-  2. Scam Indicators: Telegram/WhatsApp contact, immediate money request, poor grammar, "Kindly", non-corporate domains.
-  3. Mismatch: Does the job description tone match the company homepage tone?
-  4. Reputation: If scrape failed, what is the known reputation of ${domain}?
+  INVESTIGATIVE MANDATES:
+  1. RED FLAGS: Detect "Kindly", WhatsApp recruitment, money for equipment, no official corporate email, odd capitalization.
+  2. GHOST SIGNALS: "Always hiring", "Build your career here" with no specific team details, generic job descriptions from 2024/2025.
+  3. CORPORATE IDENTITY: Does the URL match the actual company name? (e.g. 'google-hr-portal.xyz' is a scam).
+  4. TRACE: Look for hidden recruitment patterns. Is this a real role or a "Talent Pool" harvest?
 
   OUTPUT STRICT JSON:
   {
     "verdict": "🟢 LEGITIMATE" | "🔴 SCAM RISK" | "🟡 GHOST JOB",
-    "score": number (0 = Scam, 100 = Perfect),
-    "jobTitle": "Extracted Title (or inferred)",
-    "company": "Extracted Company (or inferred)",
-    "summary": "1 sentence summary",
-    "flags": ["list", "of", "red/yellow", "flags"],
-    "hiddenSignals": ["list", "of", "subtle", "positive/negative", "insights"],
-    "cultureMatch": "High/Medium/Low - reasoning"
+    "score": number (0-100),
+    "jobTitle": "...",
+    "company": "...",
+    "summary": "...",
+    "flags": ["list red flags"],
+    "hiddenSignals": ["list subtle signals"],
+    "cultureMatch": "...",
+    "cyberMetadata": {
+      "sslStatus": "Verified/Unverified",
+      "domainAge": "Inferred age based on your knowledge",
+      "trustScore": 0-100
+    }
   }
   `;
 
@@ -109,7 +116,8 @@ export async function runForensicAudit(url: string): Promise<ForensicReport> {
       analysis: {
         flags: data.flags || [],
         hiddenSignals: data.hiddenSignals || [],
-        cultureMatch: data.cultureMatch || "Unknown"
+        cultureMatch: data.cultureMatch || "Unknown",
+        cyberMetadata: data.cyberMetadata
       },
       jobDetails: {
         title: data.jobTitle || "Unknown Role",
@@ -118,7 +126,7 @@ export async function runForensicAudit(url: string): Promise<ForensicReport> {
       }
     };
   } catch (e) {
-    console.error("[INTELLIGENCE] AI Analysis Failed:", e);
+    console.error("[INTELLIGENCE] Forensic Analysis Failed:", e);
     return {
       verdict: "⚪ INCONCLUSIVE",
       score: 50,

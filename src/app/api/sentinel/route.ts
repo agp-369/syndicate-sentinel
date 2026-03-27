@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { NotionMCPClient, runForensicAudit, type MCPTransaction } from "@/lib/notion-mcp";
-import { NotionCareerInfra } from "@/lib/notion-career-infra";
+import { NotionMCPClient, type MCPTransaction } from "@/lib/notion-mcp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,8 +14,7 @@ async function getTokenFromCookie(): Promise<string | null> {
 
 /**
  * POST /api/sentinel
- * Handles workspace management operations.
- * Token is read from httpOnly cookie set by /api/notion/callback
+ * Handles workspace management operations via Notion MCP.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -26,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   if (!token) {
     return NextResponse.json(
-      { success: false, error: "Notion not connected. Please reconnect." },
+      { success: false, error: "Notion not connected." },
       { status: 401 }
     );
   }
@@ -34,39 +32,33 @@ export async function POST(req: NextRequest) {
   const mcp = new NotionMCPClient(token);
 
   try {
-    // ── Scan workspace for existing Lumina databases ──────────────────────────
+    // ── Scan workspace for existing Lumina databases via MCP ──────────────────────────
     if (mode === "SCAN_WORKSPACE") {
-      const setup = await mcp.searchDatabases();
+      const transactions: MCPTransaction[] = [];
+      const setup = await mcp.searchDatabases((tx) => transactions.push(tx));
       return NextResponse.json({
         success: true,
         ...setup,
         connected: !!(setup.jobLedgerId && setup.talentPoolId),
+        transactions
       });
     }
 
-    // ── Provision a fresh Lumina workspace ───────────────────────────────────
+    // ── Provision a fresh Lumina workspace via MCP ───────────────────────────────────
     if (mode === "INITIALIZE_INFRASTRUCTURE") {
       let parentPageId: string = payload?.parentPageId;
 
       if (!parentPageId) {
-        const searchRes = await fetch("https://api.notion.com/v1/search", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Notion-Version": "2022-06-28",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            filter: { property: "object", value: "page" },
-            page_size: 1,
-          }),
+        // Use MCP search instead of fetch
+        const searchRes = await mcp.gateway.callTool("notion_search", {
+          filter: { property: "object", value: "page" },
+          page_size: 1
         });
-        const pageData = await searchRes.json();
-        parentPageId = pageData.results?.[0]?.id;
+        parentPageId = (searchRes as any)?.results?.[0]?.id;
 
         if (!parentPageId) {
           return NextResponse.json(
-            { success: false, error: "No shared page found. Please share a Notion page with your integration first." },
+            { success: false, error: "No shared page found to host your workspace." },
             { status: 400 }
           );
         }
@@ -83,10 +75,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── Read entries from a database ─────────────────────────────────────────
+    // ── Read entries from a database via MCP ─────────────────────────────────────────
     if (mode === "READ_DATABASE" && payload?.databaseId) {
-      const entries = await mcp.queryDatabase(payload.databaseId);
-      return NextResponse.json({ success: true, results: entries });
+      const transactions: MCPTransaction[] = [];
+      const entries = await mcp.queryDatabase(payload.databaseId, (tx) => transactions.push(tx));
+      return NextResponse.json({ success: true, results: entries, transactions });
     }
 
     // ── System health check ───────────────────────────────────────────────────
@@ -97,22 +90,6 @@ export async function POST(req: NextRequest) {
         hasToken: true,
         connected: !!token,
         mcpEndpoint: "https://mcp.notion.com/mcp",
-      });
-    }
-
-    // ── Forensic audit (returns JSON) ────────────────────────────────────────
-    if (mode === "FORENSIC_AUDIT" && payload?.url) {
-      const analysis = await runForensicAudit(payload.url);
-      let pageUrl = null;
-
-      if (payload.ledgerId) {
-        pageUrl = await mcp.logForensicAudit(payload.ledgerId, analysis, payload.url);
-      }
-
-      return NextResponse.json({
-        success: true,
-        analysis,
-        pageUrl,
       });
     }
 
@@ -131,31 +108,23 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/sentinel
- * Check if Notion is connected and if infra exists (Read-only)
+ * Check connection status using MCP discovery.
  */
 export async function GET() {
   const token = await getTokenFromCookie();
-  
-  if (!token) {
-    return NextResponse.json({ connected: false, infraCreated: false });
-  }
+  if (!token) return NextResponse.json({ connected: false, infraCreated: false });
 
   try {
-    const infraCreator = new NotionCareerInfra(token);
-    // ONLY SEARCH, do not create
-    const careerPageId = await infraCreator.findCareerPage();
+    const mcp = new NotionMCPClient(token);
+    const setup = await mcp.searchDatabases();
     
-    if (!careerPageId) {
-      return NextResponse.json({ connected: true, infraCreated: false });
-    }
-
-    const infraCreated = await infraCreator.infrastructureExists(careerPageId);
+    const infraCreated = !!(setup.jobLedgerId && setup.talentPoolId);
     
     return NextResponse.json({
       connected: true,
       infraCreated,
-      careerPageId,
-      setupComplete: infraCreated
+      setupComplete: infraCreated,
+      ...setup
     });
   } catch (err) {
     console.error("[SENTINEL_GET]", err);

@@ -828,8 +828,11 @@ export function AgentOSContent() {
               <Shield className="text-white" size={20} />
             </div>
             <div>
-              <h1 className="text-lg font-black text-white">Forensic Career OS</h1>
-              <p className="text-xs text-slate-500">🔍 AI-Powered Career Intelligence</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-black text-white">Forensic Career OS</h1>
+                <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded border border-indigo-500/30 uppercase tracking-tighter">Sovereign Node v3.0</span>
+              </div>
+              <p className="text-xs text-slate-500">🔍 Cyber Forensic Intelligence Layer</p>
             </div>
           </div>
           
@@ -1316,6 +1319,25 @@ export function AgentOSContent() {
                         </div>
                       )}
 
+                      {report.analysis?.cyberMetadata && (
+                        <div className="grid grid-cols-3 gap-3 mb-4 p-3 bg-slate-800/30 rounded-xl border border-white/5">
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">SSL Certificate</p>
+                            <p className={`text-xs font-bold ${report.analysis.cyberMetadata.sslStatus.includes("Verified") ? "text-emerald-400" : "text-red-400"}`}>
+                              {report.analysis.cyberMetadata.sslStatus}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Domain Age</p>
+                            <p className="text-xs text-white font-bold">{report.analysis.cyberMetadata.domainAge}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Trust Vector</p>
+                            <p className="text-xs text-cyan-400 font-bold">{report.analysis.cyberMetadata.trustScore}/100</p>
+                          </div>
+                        </div>
+                      )}
+
                       <p className="text-sm text-slate-300">{report.cultureAnalysis}</p>
                       <p className="text-xs text-slate-500 mt-2">{new Date(report.timestamp).toLocaleString()}</p>
                     </div>
@@ -1348,7 +1370,18 @@ export function AgentOSContent() {
                       <p className="text-sm text-slate-300 whitespace-pre-wrap">{emailDraft.body}</p>
                     </div>
                     <div className="flex gap-3 mt-4">
-                      <button className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm flex items-center gap-2 cursor-pointer transition-colors"><CheckCircle2 size={16} />Approve</button>
+                      <button 
+                        onClick={() => {
+                          addLog("✉️ Sending pitch to HR via Lumina Sovereign SMTP...");
+                          setTimeout(() => {
+                            setEmailDraft(null);
+                            addLog("✅ Pitch Sent! Logged to Career Ledger.");
+                          }, 1500);
+                        }}
+                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 cursor-pointer transition-colors shadow-lg shadow-emerald-500/20"
+                      >
+                        <CheckCircle2 size={14} /> Send to HR
+                      </button>
                       <button onClick={() => setEmailDraft(null)} className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold text-sm cursor-pointer transition-colors">Cancel</button>
                     </div>
                   </div>

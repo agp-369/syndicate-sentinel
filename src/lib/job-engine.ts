@@ -12,7 +12,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import type { UserProfile } from "./notion-profile-reader";
+import type { UserProfile } from "./notion-mcp";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 

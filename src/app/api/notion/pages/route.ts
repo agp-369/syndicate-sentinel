@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { Client } from "@notionhq/client";
+import { NotionMCPClient } from "@/lib/notion-mcp";
 
 const COOKIE_NAME = "notion_token";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/notion/pages
- * Lists all pages accessible to the integration in user's workspace
+ * Lists all pages accessible to the integration via Notion MCP
  */
 export async function GET() {
   const token = await getTokenFromCookie();
@@ -26,22 +26,21 @@ export async function GET() {
   }
 
   try {
-    const notion = new Client({ auth: token });
+    const mcp = new NotionMCPClient(token);
     
-    // Search for all pages and databases
-    const search = await notion.search({
-      page_size: 100,
-      sort: { direction: "descending", timestamp: "last_edited_time" },
+    // Search for all pages and databases via MCP
+    const searchRes = await mcp.gateway.callTool("notion_search", {
+      page_size: 100
     });
 
-    const pages = search.results.map((item: any) => {
+    const pages = ((searchRes as any)?.results ?? []).map((item: any) => {
       let title = "Untitled";
       if (item.object === "page") {
         title = item.properties?.title?.title?.[0]?.plain_text ||
                 item.properties?.Name?.title?.[0]?.plain_text ||
                 "Untitled Page";
       } else if (item.object === "database") {
-        title = item.title?.[0]?.plain_text || "Untitled Database";
+        title = (item.title?.[0]?.plain_text ?? item.title?.[0]?.text?.content) || "Untitled Database";
       }
       
       return {
@@ -57,9 +56,6 @@ export async function GET() {
       };
     });
 
-    // Sort to help tree building: parents before children if possible
-    // But buildPageTree handles it anyway.
-
     return NextResponse.json({
       success: true,
       pages,
@@ -67,10 +63,9 @@ export async function GET() {
     });
 
   } catch (err: any) {
-    console.error("[NOTION_PAGES]", err);
-    const message = err?.message || "Unknown error";
+    console.error("[NOTION_PAGES_MCP]", err);
     return NextResponse.json(
-      { success: false, error: message },
+      { success: false, error: err.message || "Unknown error" },
       { status: 500 }
     );
   }
@@ -91,21 +86,13 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!pageIds || !Array.isArray(pageIds)) {
-    return NextResponse.json(
-      { success: false, error: "Invalid page IDs" },
-      { status: 400 }
-    );
-  }
-
   const response = NextResponse.json({
     success: true,
     message: "Pages selected successfully",
-    selectedCount: pageIds.length,
+    selectedCount: pageIds?.length || 0,
   });
 
-  // Store selected page IDs in cookie
-  response.cookies.set("notion_selected_pages", JSON.stringify(pageIds), {
+  response.cookies.set("notion_selected_pages", JSON.stringify(pageIds || []), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

@@ -116,6 +116,27 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ── Test MCP connection ─────────────────────────────────────────────────
+    if (mode === "TEST_MCP") {
+      try {
+        await mcp.listTools();
+        const search = await mcp.searchPages("Forensic");
+        return NextResponse.json({
+          success: true,
+          mcpConnected: true,
+          mcpEndpoint: "https://mcp.notion.com/mcp",
+          testResult: `Found ${search.length} pages`,
+          transactions: mcp.getLastTransactions(3),
+        });
+      } catch (err: any) {
+        return NextResponse.json({
+          success: false,
+          mcpConnected: false,
+          error: err.message,
+        });
+      }
+    }
+
     return NextResponse.json(
       { success: false, error: `Unknown mode: ${mode}` },
       { status: 400 }

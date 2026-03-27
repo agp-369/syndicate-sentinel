@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NotionMCPClient } from "./notion-mcp";
 import { JobRecommendationEngine } from "./job-engine";
+import { runForensicAudit } from "./intelligence";
 
 export class SentinelWatchdog {
   private notionToken: string;
@@ -39,7 +40,7 @@ export class SentinelWatchdog {
       if (status === "🟡 AWAITING_REVIEW" && url) {
         console.log(`[WATCHDOG_MCP] Performing forensic audit on: ${url}`);
         try {
-          const analysis = await mcp.runForensicAudit(url);
+          const analysis = await runForensicAudit(url);
           
           // Log results back to the page via MCP
           await mcp.logForensicAudit(setup.jobLedgerId, analysis, url);

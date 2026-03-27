@@ -49,8 +49,9 @@ export class NotionMCPGateway {
       {
         requestInit: {
           headers: {
-            Authorization: `Bearer ${this.token}`,
+            "Authorization": `Bearer ${this.token}`,
             "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json",
           },
         },
       }
@@ -136,11 +137,15 @@ export class NotionMCPGateway {
       let parsed: any = {};
       const content = (raw as any).content;
       if (Array.isArray(content) && content[0]?.type === "text") {
+        const text = content[0].text;
         try {
-          parsed = JSON.parse(content[0].text);
+          // If it's a JSON string, parse it. If not, return the raw text.
+          parsed = (text.startsWith("{") || text.startsWith("[")) ? JSON.parse(text) : { text };
         } catch {
-          parsed = { text: content[0].text };
+          parsed = { text };
         }
+      } else if (typeof raw === "object") {
+        parsed = raw; // Already an object
       }
 
       tx.result = parsed;

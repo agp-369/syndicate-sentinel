@@ -49,16 +49,13 @@ export async function POST(req: NextRequest) {
       let parentPageId: string = payload?.parentPageId;
 
       if (!parentPageId) {
-        // Use MCP search instead of fetch
-        const searchRes = await mcp.gateway.callTool("notion_search", {
-          filter: { property: "object", value: "page" },
-          page_size: 1
-        });
-        parentPageId = (searchRes as any)?.results?.[0]?.id;
+        // Use robust workspace search instead of raw gateway call
+        const searchRes = await mcp.searchWorkspace();
+        parentPageId = searchRes.find(item => item.object === "page")?.id;
 
         if (!parentPageId) {
           return NextResponse.json(
-            { success: false, error: "No shared page found to host your workspace." },
+            { success: false, error: "No shared page found to host your workspace. Please share a page with Lumina in Notion." },
             { status: 400 }
           );
         }

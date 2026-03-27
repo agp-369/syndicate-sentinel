@@ -19,28 +19,26 @@ export async function GET() {
   const token = await getTokenFromCookie();
 
   if (!token) {
-    return NextResponse.json(
-      { success: false, error: "Notion not connected" },
-      { status: 401 }
-    );
+    return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
   }
 
   try {
     const mcp = new NotionMCPClient(token);
     
-    // Search for all pages and databases via MCP
-    const searchRes = await mcp.gateway.callTool("notion_search", {
-      page_size: 100
-    });
+    // Robust search without filters to get everything first
+    const searchRes = await mcp.searchWorkspace();
 
-    const pages = ((searchRes as any)?.results ?? []).map((item: any) => {
+    const pages = searchRes.map((item: any) => {
       let title = "Untitled";
       if (item.object === "page") {
         title = item.properties?.title?.title?.[0]?.plain_text ||
                 item.properties?.Name?.title?.[0]?.plain_text ||
+                item.properties?.["Job Title"]?.title?.[0]?.plain_text ||
                 "Untitled Page";
       } else if (item.object === "database") {
-        title = (item.title?.[0]?.plain_text ?? item.title?.[0]?.text?.content) || "Untitled Database";
+        title = item.title?.[0]?.plain_text || 
+                item.title?.[0]?.text?.content || 
+                "Untitled Database";
       }
       
       return {
@@ -63,9 +61,9 @@ export async function GET() {
     });
 
   } catch (err: any) {
-    console.error("[NOTION_PAGES_MCP]", err);
+    console.error("[NOTION_PAGES_MCP] Error:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Unknown error" },
+      { success: false, error: err.message || "Failed to fetch Notion pages" },
       { status: 500 }
     );
   }
@@ -80,10 +78,7 @@ export async function POST(req: Request) {
   const token = await getTokenFromCookie();
 
   if (!token) {
-    return NextResponse.json(
-      { success: false, error: "Notion not connected" },
-      { status: 401 }
-    );
+    return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
   }
 
   const response = NextResponse.json({

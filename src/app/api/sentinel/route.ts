@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
 
       if (!parentPageId) {
         // Use robust workspace search instead of raw gateway call
-        const searchRes = await mcp.searchWorkspace();
-        parentPageId = searchRes.find(item => item.object === "page")?.id;
+        const searchRes = await mcp.gateway.callTool("notion_search", { page_size: 10 });
+        parentPageId = (searchRes?.results || []).find((item: any) => item.object === "page")?.id;
 
         if (!parentPageId) {
           return NextResponse.json(

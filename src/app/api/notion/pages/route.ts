@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { Client } from "@notionhq/client";
+import { NotionMCPClient } from "@/lib/notion-mcp";
 
 const COOKIE_NAME = "notion_token";
 
@@ -13,76 +13,55 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/notion/pages
- * Lists all pages accessible to the integration
- * Uses direct Notion API (more reliable than MCP for this)
+ * Lists all pages accessible to the integration via Notion MCP
  */
 export async function GET() {
   const token = await getTokenFromCookie();
-
-  if (!token) {
-    return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
-  }
+  if (!token) return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
 
   try {
-    const notion = new Client({ auth: token });
+    const mcp = new NotionMCPClient(token);
     
-    // Search for all pages
-    const search = await notion.search({
-      filter: { property: "object", value: "page" },
-      page_size: 100,
-      sort: { direction: "descending", timestamp: "last_edited_time" },
+    // Use official tool name: notion_search
+    const searchRes = await mcp.gateway.callTool("notion_search", { 
+      page_size: 100 
     });
 
-    const pages = search.results.map((page: any) => {
-      const title = page.properties?.title?.title?.[0]?.plain_text ||
-                    page.properties?.Name?.title?.[0]?.plain_text ||
-                    "Untitled";
+    const pages = (searchRes?.results || []).map((item: any) => {
+      let title = "Untitled";
+      if (item.object === "page") {
+        title = item.properties?.title?.title?.[0]?.plain_text ||
+                item.properties?.Name?.title?.[0]?.plain_text ||
+                "Untitled Page";
+      } else if (item.object === "database") {
+        title = item.title?.[0]?.plain_text || "Untitled Database";
+      }
       
       return {
-        id: page.id,
+        id: item.id,
         title: title,
-        url: page.url,
-        type: page.object,
-        lastEdited: page.last_edited_time,
-        icon: page.icon?.emoji || null,
-        parentId: page.parent?.page_id || page.parent?.database_id || null,
+        url: item.url,
+        type: item.object,
+        lastEdited: item.last_edited_time,
+        icon: item.icon?.emoji || null,
+        parentId: item.parent?.page_id || item.parent?.database_id || null,
         hasChildren: false,
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      pages,
-      count: pages.length,
-    });
-
+    return NextResponse.json({ success: true, pages, count: pages.length });
   } catch (err: any) {
-    console.error("[NOTION_PAGES] Error:", err.message);
-    return NextResponse.json(
-      { success: false, error: err.message || "Failed to fetch Notion pages" },
-      { status: 500 }
-    );
+    console.error("[NOTION_PAGES_MCP] Error:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
 
-/**
- * POST /api/notion/pages
- * Save selected page IDs to cookie
- */
 export async function POST(req: Request) {
   const { pageIds } = await req.json();
   const token = await getTokenFromCookie();
+  if (!token) return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
 
-  if (!token) {
-    return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
-  }
-
-  const response = NextResponse.json({
-    success: true,
-    message: "Pages selected successfully",
-    selectedCount: pageIds?.length || 0,
-  });
-
+  const response = NextResponse.json({ success: true, message: "Pages selected successfully" });
   response.cookies.set("notion_selected_pages", JSON.stringify(pageIds || []), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -90,6 +69,5 @@ export async function POST(req: Request) {
     maxAge: 60 * 60 * 24 * 30,
     path: "/",
   });
-
   return response;
 }

@@ -1,18 +1,8 @@
-/**
- * Forensic Career OS - Notion MCP Client
- * Compatible with Notion MCP v2.0 / API 2025-09-03
- * 
- * Tool Names (v2.0):
- * - notion-search             → Search workspace
- * - notion-fetch             → Get page content  
- * - notion-create-pages      → Create pages
- * - notion-update-page        → Update pages
- * - notion-create-database    → Create databases
- * - notion-query-data-sources → Query data sources
- */
-
-import { NotionMCPGateway, MCPTransaction } from "./notion-mcp-gateway";
+import { NotionMCPGateway } from "./notion-mcp-gateway";
+import type { MCPTransaction } from "./notion-mcp-gateway";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import axios from "axios";
+import * as cheerio from "cheerio";
 
 export type { MCPTransaction };
 
@@ -35,12 +25,6 @@ export interface ForensicReport {
   };
 }
 
-export interface WorkspaceSetup {
-  careerPageId?: string;
-  jobsDataSourceId?: string;
-  skillsDataSourceId?: string;
-}
-
 export interface UserProfile {
   name: string;
   email: string;
@@ -51,12 +35,23 @@ export interface UserProfile {
   yearsOfExperience: number;
   currentRole: string;
   currentCompany: string;
-  experience: { role: string; company: string; duration: string }[];
-  education: { school: string; degree: string; year: string }[];
+  experience: { role: string; company: string; duration: string; description?: string }[];
+  education: { institution: string; degree: string; field: string; year: string }[];
   goals: string[];
-  preferences: Record<string, any>;
+  preferences: { location?: string; remote?: boolean; salary?: string; roles?: string[] };
 }
 
+export interface WorkspaceSetup {
+  careerPageId?: string;
+  jobsDataSourceId?: string;
+  skillsDataSourceId?: string;
+  systemStateId?: string;
+}
+
+/**
+ * 🛰️ NotionMCPClient v4.0 - TRUE CORE POWER
+ * Features: Deep Block Reading, State Persistence, Robust Schema Mapping
+ */
 export class NotionMCPClient {
   public gateway: NotionMCPGateway;
 
@@ -65,166 +60,99 @@ export class NotionMCPClient {
   }
 
   /**
-   * Search Notion workspace using MCP v2.0 tool
+   * RECURSIVELY fetch all text content from a page's blocks.
+   * This is the "True Core Power" required to actually 'read' Notion.
    */
-  async searchWorkspace(query: string, onLog?: (tx: MCPTransaction) => void) {
-    return this.gateway.callTool("notion-search", {
-      query,
-      filter: { property: "object", value: "page" },
-      page_size: 50
-    }, onLog, ["Searching Notion workspace..."]);
-  }
-
-  /**
-   * Fetch page content using MCP v2.0 tool
-   */
-  async fetchPage(pageId: string, onLog?: (tx: MCPTransaction) => void) {
-    return this.gateway.callTool("notion-fetch", {
-      page_id: pageId
-    }, onLog, ["Fetching page content..."]);
-  }
-
-  /**
-   * Create pages using MCP v2.0 tool
-   */
-  async createPage(parentId: string, title: string, properties?: Record<string, any>, children?: any[], onLog?: (tx: MCPTransaction) => void) {
-    const pageProps: Record<string, any> = {
-      title: [{ text: { content: title } }]
-    };
+  async deepReadPage(blockId: string, depth = 0, onLog?: (tx: MCPTransaction) => void): Promise<string> {
+    if (depth > 3) return ""; // Prevent infinite loops or too much context
     
-    if (properties) {
-      Object.assign(pageProps, properties);
+    let textContent = "";
+    try {
+      const result = await this.gateway.callTool("notion_fetch_block_children", {
+        block_id: blockId
+      }, onLog, [`Reading block layer ${depth}...`]);
+
+      const blocks = (result as any)?.results || [];
+      for (const block of blocks) {
+        // Extract text from various block types
+        const type = block.type;
+        const content = block[type];
+        
+        if (content?.rich_text) {
+          const blockText = content.rich_text.map((t: any) => t.plain_text).join("");
+          textContent += blockText + "\n";
+        }
+
+        // If block has children (nested lists, etc), recurse
+        if (block.has_children) {
+          textContent += await this.deepReadPage(block.id, depth + 1, onLog);
+        }
+      }
+    } catch (e) {
+      console.warn(`[DEEP_READ] Failed for block ${blockId}:`, e);
+    }
+    return textContent;
+  }
+
+  /**
+   * Provision or RECOVER existing Lumina infrastructure.
+   */
+  async initializeWorkspace(
+    parentPageId: string,
+    onLog?: (tx: MCPTransaction) => void
+  ): Promise<WorkspaceSetup> {
+    // 1. Check if we already have these databases (RECOVERY MODE)
+    const existing = await this.searchDatabases(onLog);
+    if (existing.jobsDataSourceId && existing.skillsDataSourceId) {
+      onLog?.({ id: "recovery", timestamp: new Date().toISOString(), method: "agent/recovery", thinking: ["♻️ Existing Lumina infrastructure detected. Recovering system state..."] });
+      return existing;
     }
 
-    return this.gateway.callTool("notion-create-pages", {
-      parent: { page_id: parentId },
-      properties: pageProps,
-      children: children || []
-    }, onLog, [`Creating page: ${title}`]);
-  }
-
-  /**
-   * Create database using MCP v2.0 tool
-   */
-  async createDatabase(parentId: string, name: string, schema: Record<string, any>, onLog?: (tx: MCPTransaction) => void) {
-    return this.gateway.callTool("notion-create-database", {
-      parent: { page_id: parentId },
-      name,
-      schema
-    }, onLog, [`Creating database: ${name}`]);
-  }
-
-  /**
-   * Query data source using MCP v2.0 tool
-   */
-  async queryDataSource(dataSourceId: string, pageSize: number = 50, onLog?: (tx: MCPTransaction) => void) {
-    return this.gateway.callTool("notion-query-data-sources", {
-      data_source_id: dataSourceId,
-      page_size: pageSize
-    }, onLog, ["Querying data source..."]);
-  }
-
-  /**
-   * Initialize Forensic Career OS workspace
-   */
-  async initializeWorkspace(parentPageId: string, onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
     const setup: WorkspaceSetup = {};
-
     try {
-      // Step 1: Handshake - discover available tools
-      await this.gateway.listTools(onLog);
-
-      // Step 2: Create Jobs tracking database
-      const jobsDb = await this.gateway.callTool("notion-create-database", {
+      // Step 1: Jobs Tracker Database
+      const jobsDb = await this.gateway.callTool("notion_create_database", {
         parent: { page_id: parentPageId },
-        name: "🎯 Job Tracker",
-        schema: {
-          "Job Title": { type: "title" },
-          "Status": { type: "select", options: [
+        title: [{ type: "text", text: { content: "🎯 Lumina: Job Tracker" } }],
+        properties: {
+          "Job Title": { title: {} },
+          "Status": { select: { options: [
             { name: "🔍 Researching", color: "yellow" },
-            { name: "📤 Applied", color: "blue" },
-            { name: "📞 Interview", color: "purple" },
-            { name: "✅ Offer", color: "green" },
-            { name: "❌ Rejected", color: "red" }
-          ]},
-          "Company": { type: "rich_text" },
-          "Trust Score": { type: "number", format: "percent" },
-          "Match %": { type: "number", format: "percent" }
+            { name: "🟡 AWAITING_REVIEW", color: "orange" },
+            { name: "✅ Verified", color: "green" },
+            { name: "🚩 Scam Risk", color: "red" }
+          ]}},
+          "Company": { rich_text: {} },
+          "Job URL": { url: {} },
+          "Trust Score": { number: { format: "percent" } }
         }
-      }, onLog, ["Creating Jobs database..."]);
+      }, onLog, ["Provisioning Job Tracker..."]);
       setup.jobsDataSourceId = jobsDb?.id;
 
-      // Step 3: Create Skills database
-      const skillsDb = await this.gateway.callTool("notion-create-database", {
+      // Step 2: Skill DNA Database
+      const skillsDb = await this.gateway.callTool("notion_create_database", {
         parent: { page_id: parentPageId },
-        name: "🧬 Skill DNA",
-        schema: {
-          "Skill": { type: "title" },
-          "Category": { type: "select", options: [
-            { name: "Frontend", color: "blue" },
-            { name: "Backend", color: "green" },
-            { name: "DevOps", color: "purple" },
-            { name: "Soft Skill", color: "yellow" }
-          ]},
-          "Demand": { type: "number", format: "percent" },
-          "Level": { type: "select", options: [
-            { name: "Beginner", color: "gray" },
-            { name: "Intermediate", color: "blue" },
-            { name: "Expert", color: "green" }
-          ]}
-        }
-      }, onLog, ["Creating Skills database..."]);
-      setup.skillsDataSourceId = skillsDb?.id;
-
-      // Step 4: Create welcome page
-      await this.gateway.callTool("notion-create-pages", {
-        parent: { page_id: parentPageId },
+        title: [{ type: "text", text: { content: "🧬 Lumina: Skill DNA" } }],
         properties: {
-          title: [{ text: { content: "🚀 Forensic Career OS Ready!" } }]
-        },
-        children: [
-          {
-            object: "block",
-            type: "callout",
-            callout: {
-              rich_text: [{ type: "text", text: { content: "🎯 Forensic Career OS v2.0 initialized! Built with Notion MCP v2.0 (API 2025-09-03)" } }],
-              icon: { emoji: "🚀" },
-              color: "blue_background"
-            }
-          },
-          {
-            object: "block",
-            type: "bulleted_list_item",
-            bulleted_list_item: {
-              rich_text: [{ type: "text", text: { content: "🎯 Track job applications with trust scoring" } }]
-            }
-          },
-          {
-            object: "block",
-            type: "bulleted_list_item",
-            bulleted_list_item: {
-              rich_text: [{ type: "text", text: { content: "🧬 Map your skills with DNA analysis" } }]
-            }
-          },
-          {
-            object: "block",
-            type: "bulleted_list_item",
-            bulleted_list_item: {
-              rich_text: [{ type: "text", text: { content: "🔍 Detect job scams with forensic analysis" } }]
-            }
-          }
-        ]
-      }, onLog, ["Creating welcome page..."]);
+          "Skill": { title: {} },
+          "Category": { select: { options: [
+            { name: "Technical", color: "blue" },
+            { name: "Soft Skill", color: "yellow" },
+            { name: "Tooling", color: "purple" }
+          ]}},
+          "Demand": { number: { format: "percent" } }
+        }
+      }, onLog, ["Provisioning Skill DNA..."]);
+      setup.skillsDataSourceId = skillsDb?.id;
 
     } finally {
       await this.gateway.close();
     }
-
     return setup;
   }
 
   /**
-   * Discover and read user profile from Notion workspace
+   * Deep Discover & Extract Profile using strict rules.
    */
   async discoverAndReadProfile(onLog?: (tx: MCPTransaction) => void): Promise<UserProfile> {
     const profile: UserProfile = {
@@ -234,84 +162,88 @@ export class NotionMCPClient {
     };
 
     try {
-      // Search for profile pages
-      const searchResult = await this.gateway.callTool("notion-search", {
-        query: "resume profile skills goals",
+      // 1. Search for potential profile sources
+      const searchRes = await this.gateway.callTool("notion_search", {
+        query: "resume cv profile experience",
         filter: { property: "object", value: "page" },
-        page_size: 20
-      }, onLog, ["Discovering profile pages..."]);
+        page_size: 10
+      }, onLog, ["Searching for profile data sources..."]);
 
-      const targetPages: string[] = [];
-      for (const page of (searchResult?.results ?? []) as any[]) {
-        const title = (
-          page.properties?.title?.title?.[0]?.plain_text ??
-          page.properties?.Name?.title?.[0]?.plain_text ??
-          ""
-        ).toLowerCase();
-        
-        if (title.includes("resume") || title.includes("profile") || title.includes("about")) {
-          targetPages.push(page.id);
-        }
+      const targetPages = (searchRes as any)?.results || [];
+      let consolidatedText = "";
+
+      for (const page of targetPages) {
+        onLog?.({ id: `read_${page.id}`, timestamp: new Date().toISOString(), method: "notion_fetch_block_children", thinking: [`🔍 Deep reading page: ${page.properties?.title?.title?.[0]?.plain_text || "Untitled"}`] });
+        consolidatedText += await this.deepReadPage(page.id, 0, onLog);
       }
 
-      // Fetch content from found pages
-      const fullText: string[] = [];
-      for (const pageId of targetPages.slice(0, 3)) {
-        try {
-          const pageData = await this.gateway.callTool("notion-fetch", { page_id: pageId }, onLog);
-          const content = (pageData as any).content || "";
-          if (typeof content === "string") fullText.push(content);
-        } catch {}
-      }
-
-      if (fullText.length > 0) {
-        try {
-          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-          const prompt = `You are a strict data extraction agent. Extract professional profile data from the provided Notion content.
+      if (consolidatedText.trim()) {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const prompt = `You are a professional data extraction agent. Extract career data from the provided text.
 RULES:
-1. ONLY extract information explicitly stated in the text.
-2. DO NOT hallucinate, guess, or infer skills, roles, or experience.
-3. If a field is not found, leave it as an empty string ("") or empty array ([]).
-4. For yearsOfExperience, only output a number if explicitly stated, otherwise 0.
-5. Return ONLY a valid JSON object matching this schema exactly, with no markdown formatting or extra text:
+1. ONLY extract information explicitly present in the text.
+2. DO NOT hallucinate. If a field is missing, use "" or [].
+3. Format specifically for Lumina OS.
+4. Output STRICT JSON:
 {
   "name": "string",
-  "email": "string",
   "headline": "string",
-  "summary": "string",
   "skills": ["string"],
   "yearsOfExperience": number,
   "currentRole": "string",
-  "currentCompany": "string"
+  "currentCompany": "string",
+  "experience": [{"role": "string", "company": "string", "duration": "string"}]
 }
 
-CONTENT TO ANALYZE:
-${fullText.join("\n").substring(0, 5000)}`;
+TEXT:
+${consolidatedText.substring(0, 10000)}`;
 
-          const aiRes = await model.generateContent(prompt);
-          const extracted = JSON.parse(aiRes.response.text().replace(/```json/g, "").replace(/```/g, "").trim());
-          Object.assign(profile, extracted);
-        } catch (e) {
-          console.error("Failed to extract profile:", e);
-        }
+        const aiRes = await model.generateContent(prompt);
+        const extracted = JSON.parse(aiRes.response.text().replace(/```json/g, "").replace(/```/g, "").trim());
+        Object.assign(profile, extracted);
       }
+    } catch (e) {
+      console.error("[MCP_PROFILE] Failure:", e);
     } finally {
       await this.gateway.close();
     }
-
     return profile;
   }
 
   /**
-   * Log forensic analysis result to Notion
+   * Search for existing Lumina components to prevent duplicates.
    */
-  async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
-    // Human-in-the-loop: All forensic reports go to AWAITING_REVIEW first for user approval.
-    const statusName = "🟡 AWAITING_REVIEW";
-    
+  async searchDatabases(onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
+    const setup: WorkspaceSetup = {};
     try {
-      const result = await this.gateway.callTool("notion-create-pages", {
-        parent: { data_source_id: dataSourceId },
+      const result = await this.gateway.callTool("notion_search", {
+        filter: { property: "object", value: "database" }
+      }, onLog, ["Scanning for existing infrastructure..."]);
+
+      const items = (result as any)?.results || [];
+      for (const item of items) {
+        const title = (item.title?.[0]?.plain_text || "").toLowerCase();
+        if (title.includes("job tracker")) setup.jobsDataSourceId = item.id;
+        else if (title.includes("skill dna")) setup.skillsDataSourceId = item.id;
+      }
+    } catch (e) {
+      console.warn("[SEARCH_DB] Failed, might be no databases yet.");
+    }
+    return setup;
+  }
+
+  async queryDataSource(dataSourceId: string, pageSize: number = 50, onLog?: (tx: MCPTransaction) => void) {
+    return this.gateway.callTool("notion_query_database", {
+      database_id: dataSourceId,
+      page_size: pageSize
+    }, onLog, ["Fetching items from Notion database..."]);
+  }
+
+  async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
+    const statusName = "🟡 AWAITING_REVIEW";
+    try {
+      const result = await this.gateway.callTool("notion_create_page", {
+        parent: { database_id: dataSourceId },
         properties: {
           "Job Title": { title: [{ text: { content: `${analysis.jobDetails.company}: ${analysis.jobDetails.title}` } }] },
           "Status": { select: { name: statusName } },
@@ -320,40 +252,14 @@ ${fullText.join("\n").substring(0, 5000)}`;
           "Job URL": { url: url }
         },
         children: [
-          {
-            object: "block",
-            type: "callout",
-            callout: {
-              rich_text: [{ type: "text", text: { content: `FORENSIC VERDICT: ${analysis.verdict} (${analysis.score}%)\n\nPlease review and approve this verdict in the Lumina dashboard.` } }],
-              icon: { emoji: analysis.verdict.includes("LEGITIMATE") ? "✅" : "🚨" },
-              color: analysis.verdict.includes("LEGITIMATE") ? "green_background" : "red_background"
-            }
-          },
-          {
-            object: "block",
-            type: "paragraph",
-            paragraph: {
-              rich_text: [{ type: "text", text: { content: analysis.jobDetails.summary || "No summary provided." } }]
-            }
-          },
-          ...analysis.analysis.flags.map((flag: string) => ({
-            object: "block",
-            type: "bulleted_list_item",
-            bulleted_list_item: {
-              rich_text: [{ type: "text", text: { content: `🚩 ${flag}` } }]
-            }
-          }))
+          { object: "block", type: "callout", callout: { rich_text: [{ type: "text", text: { content: `🚨 FORENSIC VERDICT: ${analysis.verdict} (${analysis.score}%)` } }], icon: { emoji: "🛡️" }, color: "red_background" } },
+          { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: "Investigation Proof" } }] } },
+          ...analysis.analysis.flags.map(flag => ({ object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ type: "text", text: { content: flag } }] } }))
         ]
-      }, onLog, [`Logging forensic analysis for ${analysis.jobDetails.company}...`]);
-
-      const pageId = result?.id || "";
-      return `https://notion.so/${pageId.replace(/-/g, "")}`;
+      }, onLog, ["Logging forensic proof to Notion..."]);
+      return result?.id || "";
     } finally {
       await this.gateway.close();
     }
-  }
-
-  getTransactions(): MCPTransaction[] {
-    return this.gateway.getTransactions();
   }
 }

@@ -110,7 +110,7 @@ USER PROFILE:
 - Summary: ${profile.summary}
 - Skills: ${profile.skills.join(", ")}
 - Experience: ${profile.experience.map(e => `${e.role} at ${e.company} (${e.duration})`).join("; ") || "Entry to mid level"}
-- Education: ${profile.education.map(e => `${e.degree} at ${e.school}`).join("; ") || "Not specified"}
+- Education: ${profile.education.map(e => `${e.degree} at ${e.institution}`).join("; ") || "Not specified"}
 - Goals: ${profile.goals.join(", ") || "Career growth"}
 - Preferences: ${profile.preferences.remote ? "Prefers remote work" : ""}
 

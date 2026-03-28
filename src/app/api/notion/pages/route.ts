@@ -22,8 +22,8 @@ export async function GET() {
   try {
     const mcp = new NotionMCPClient(token);
     
-    // Use official tool name: notion_search
-    const searchRes = await mcp.gateway.callTool("notion_search", { 
+    // Use official tool name: notion-search
+    const searchRes = await mcp.gateway.callTool("notion-search", { 
       page_size: 100 
     });
 

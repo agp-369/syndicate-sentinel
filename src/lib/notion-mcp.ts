@@ -67,7 +67,7 @@ export class NotionMCPClient {
     if (depth > 2) return "";
     let text = "";
     try {
-      const result = await this.gateway.callTool("notion_fetch_block_children", { block_id: blockId });
+      const result = await this.gateway.callTool("notion-fetch", { block_id: blockId });
       const blocks = (result as any)?.results || [];
       for (const block of blocks) {
         const type = block.type;
@@ -90,7 +90,7 @@ export class NotionMCPClient {
     const setup: WorkspaceSetup = {};
     try {
       // 1. Search for databases
-      const result = await this.gateway.callTool("notion_search", {
+      const result = await this.gateway.callTool("notion-search", {
         filter: { property: "object", value: "database" }
       }, onLog, ["Scanning for existing Forensic OS infrastructure..."]);
 
@@ -101,7 +101,7 @@ export class NotionMCPClient {
       }
 
       // 2. Search for the main dashboard page
-      const pageRes = await this.gateway.callTool("notion_search", {
+      const pageRes = await this.gateway.callTool("notion-search", {
         query: "Forensic Career OS",
         filter: { property: "object", value: "page" }
       });
@@ -123,7 +123,7 @@ export class NotionMCPClient {
 
     try {
       // 1. Search for Resume/CV/Profile pages
-      const searchRes = await this.gateway.callTool("notion_search", {
+      const searchRes = await this.gateway.callTool("notion-search", {
         query: "resume cv experience profile",
         filter: { property: "object", value: "page" },
         page_size: 10
@@ -171,7 +171,7 @@ JSON Output Schema: { "name": string, "skills": string[], "yearsOfExperience": n
 
     try {
       if (!existing.jobsDataSourceId) {
-        const jobsDb = await this.gateway.callTool("notion_create_database", {
+        const jobsDb = await this.gateway.callTool("notion-create-database", {
           parent: { page_id: parentPageId },
           title: [{ text: { content: "🎯 Lumina: Job Tracker" } }],
           properties: {
@@ -192,12 +192,12 @@ JSON Output Schema: { "name": string, "skills": string[], "yearsOfExperience": n
   }
 
   async queryDataSource(dataSourceId: string, pageSize: number = 50, onLog?: (tx: MCPTransaction) => void) {
-    return this.gateway.callTool("notion_query_database", { database_id: dataSourceId, page_size: pageSize }, onLog);
+    return this.gateway.callTool("notion-query-data-sources", { database_id: dataSourceId, page_size: pageSize }, onLog);
   }
 
   async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
     try {
-      const result = await this.gateway.callTool("notion_create_page", {
+      const result = await this.gateway.callTool("notion-create-pages", {
         parent: { database_id: dataSourceId },
         properties: {
           "Job Title": { title: [{ text: { content: `${analysis.jobDetails.company}: ${analysis.jobDetails.title}` } }] },

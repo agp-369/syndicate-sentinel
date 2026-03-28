@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
       
       // 3. Provision if setup requested and databases missing
       if (!setup.jobsDataSourceId && (mode === "FULL_SETUP" || mode === "SETUP")) {
-        const searchRes = await mcp.gateway.callTool("notion_search", { page_size: 5 });
+        const searchRes = await mcp.gateway.callTool("notion-search", { page_size: 5 });
         const parentPageId = (searchRes as any)?.results?.find((i: any) => i.object === "page")?.id;
         if (parentPageId) {
           setup = await mcp.initializeWorkspace(parentPageId);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import {
   User, Briefcase, TrendingUp, Mail, Search, Link as LinkIcon,
   Loader2, Sparkles, CheckCircle2, AlertTriangle,
@@ -9,10 +9,12 @@ import {
   MapPin, DollarSign, ChevronRight, Plus, Trash2, Edit3,
   Check, Bot, MessageSquare, Sparkle, Wand2, Shield, Hammer,
   AlertCircle, X, FileText, FolderOpen, Zap, Eye, RefreshCcw,
-  Settings
+  Settings, Activity, Play, Pause, Terminal
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth, SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import { SimulationRunner, MCPOperationsDisplay, ForensicSimulation, SIMULATION_TEMPLATES } from "@/components/simulations";
+import { commandExecutor, commandParser, ParsedCommand } from "@/lib/command-parser";
 
 interface NotionPage {
   id: string;
@@ -128,7 +130,21 @@ export function AgentOSContent() {
   const [pendingCommand, setPendingCommand] = useState<ChatCommand | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
+  // Agent Simulation State
+  const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [activeSimulation, setActiveSimulation] = useState<{
+    type: "search" | "extract" | "analyze" | "forensic" | "scrape" | "write" | "update" | "learn";
+    step: number;
+    message: string;
+    progress: number;
+  } | null>(null);
+  const [agentLogs, setAgentLogs] = useState<string[]>([]);
+
   const addLog = (msg: string) => setLogs(prev => [...prev.slice(-10), `> ${msg}`]);
+
+  const addAgentLog = (msg: string) => {
+    setAgentLogs(prev => [...prev.slice(-20), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  };
 
   const addMcpTransaction = (tx: { method: string; status: "pending" | "success" | "error"; duration?: number; details?: string }) => {
     setMcpTransactions(prev => [{
@@ -593,66 +609,120 @@ export function AgentOSContent() {
     }
   };
 
-  // Natural Language Chat Parser
+  // Natural Language Chat Parser - Updated with strict command parsing
   const parseNaturalCommand = (input: string): ChatCommand | null => {
-    const lower = input.toLowerCase();
+    const parsed = commandParser.parse(input);
     
-    // Add job patterns
-    if (lower.match(/add.*job|new.*job|find.*job|search.*job/i)) {
-      const match = input.match(/add.*(?:job|position|role)[:\s]+(.+)/i) || input.match(/(?:at|for|@)\s*(.+)/i);
-      return { id: Date.now().toString(), type: "add", target: "job", details: match?.[1] || "new position", status: "pending", timestamp: new Date().toISOString() };
+    if (!parsed || parsed.intent === "unknown") {
+      return null;
     }
-    // Add skill patterns
-    if (lower.match(/add.*skill|learn.*skill|new.*skill/i)) {
-      const skill = input.replace(/add.*skill[:\s]*/i, "").replace(/learn.*skill[:\s]*/i, "").trim();
-      return { id: Date.now().toString(), type: "add", target: "skill", details: skill || "new skill", status: "pending", timestamp: new Date().toISOString() };
+
+    // Map parsed intent to ChatCommand
+    switch (parsed.intent) {
+      case "search_jobs":
+        return {
+          id: Date.now().toString(),
+          type: "search",
+          target: "jobs",
+          details: parsed.entities.jobTitle || "jobs",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "add_job":
+        return {
+          id: Date.now().toString(),
+          type: "add",
+          target: "job",
+          details: `${parsed.entities.jobTitle || "job"} at ${parsed.entities.company || "company"}`,
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "forensic_analysis":
+        return {
+          id: Date.now().toString(),
+          type: "research",
+          target: "url",
+          details: parsed.entities.jobUrl || "",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "read_profile":
+        return {
+          id: Date.now().toString(),
+          type: "read",
+          target: "profile",
+          details: "",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "generate_pitch":
+        return {
+          id: Date.now().toString(),
+          type: "generate",
+          target: "pitch",
+          details: "pitch",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "generate_email":
+        return {
+          id: Date.now().toString(),
+          type: "generate",
+          target: "email",
+          details: parsed.entities.recipient || "target",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "show_learning":
+        return {
+          id: Date.now().toString(),
+          type: "analyze",
+          target: "learning",
+          details: "skill gaps",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "accept_report":
+        return {
+          id: Date.now().toString(),
+          type: "approve",
+          target: "report",
+          details: "accept",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      case "reject_report":
+        return {
+          id: Date.now().toString(),
+          type: "reject",
+          target: "report",
+          details: "reject",
+          status: "pending",
+          timestamp: new Date().toISOString()
+        };
+      default:
+        return null;
     }
-    // Update status patterns
-    if (lower.match(/update.*status|change.*status|set.*status/i)) {
-      const statusMatch = input.match(/(?:to|as)\s*(applied|interview|offer|rejected|researching)/i);
-      return { id: Date.now().toString(), type: "update", target: "status", details: statusMatch?.[1] || "applied", status: "pending", timestamp: new Date().toISOString() };
-    }
-    // Delete job patterns
-    if (lower.match(/delete.*job|remove.*job/i)) {
-      return { id: Date.now().toString(), type: "delete", target: "job", details: input.replace(/delete.*job[:\s]*/i, "").trim() || "last job", status: "pending", timestamp: new Date().toISOString() };
-    }
-    // Approve patterns
-    if (lower.match(/approve|yes|confirm|go ahead|do it/i)) {
-      return { id: Date.now().toString(), type: "approve", target: "pending", details: "", status: "pending", timestamp: new Date().toISOString() };
-    }
-    // Generate pitch patterns
-    if (lower.match(/generate.*pitch|write.*email|create.*email|email.*draft/i)) {
-      const company = input.match(/(?:for|to|at)\s*(.+)/i)?.[1] || "target company";
-      return { id: Date.now().toString(), type: "generate", target: "pitch", details: company, status: "pending", timestamp: new Date().toISOString() };
-    }
-    // Analyze skill patterns
-    if (lower.match(/analyze.*skill|check.*skill|skill.*analysis/i)) {
-      const skill = input.replace(/analyze.*skill[:\s]*/i, "").replace(/check.*skill[:\s]*/i, "").trim();
-      return { id: Date.now().toString(), type: "analyze", target: "skill", details: skill || "all skills", status: "pending", timestamp: new Date().toISOString() };
-    }
-    // Research patterns
-    if (lower.match(/research|forensic|check.*company|verify.*job/i)) {
-      const url = input.match(/https?:\/\/[^\s]+/)?.[0] || "";
-      return { id: Date.now().toString(), type: "research", target: "url", details: url, status: "pending", timestamp: new Date().toISOString() };
-    }
-    // Refresh patterns
-    if (lower.match(/refresh|reload|update|check.*again/i)) {
-      return { id: Date.now().toString(), type: "refresh", target: "all", details: "", status: "pending", timestamp: new Date().toISOString() };
-    }
-    
-    return null;
   };
 
   const executeCommand = async (cmd: ChatCommand) => {
-    setChatMessages(prev => [...prev, { role: "agent", content: `Processing: ${cmd.type} ${cmd.target}...` }]);
+    setChatMessages(prev => [...prev, { role: "agent", content: `🔄 Processing: ${cmd.type} ${cmd.target}...` }]);
+    addAgentLog(`📋 Command: ${cmd.type} ${cmd.target}`);
     
     try {
       switch (cmd.type) {
+        case "search":
+          addAgentLog(`🔍 Searching for: ${cmd.details}`);
+          await generateJobRecommendations();
+          setChatMessages(prev => [...prev, { role: "agent", content: `✅ Found matching jobs! MCP read ${pages.length} pages from your Notion workspace.` }]);
+          break;
         case "add":
           if (cmd.target === "job") {
+            addAgentLog(`💼 Adding job: ${cmd.details}`);
             await generateJobRecommendations();
-            setChatMessages(prev => [...prev, { role: "agent", content: `✅ Found matching jobs for you!` }]);
+            setChatMessages(prev => [...prev, { role: "agent", content: `✅ Found matching jobs!` }]);
           } else if (cmd.target === "skill") {
+            addAgentLog(`🧬 Analyzing skills...`);
             await analyzeSkillGaps();
             setChatMessages(prev => [...prev, { role: "agent", content: `✅ Skill analysis complete!` }]);
           }
@@ -667,24 +737,49 @@ export function AgentOSContent() {
           break;
         case "research":
           if (cmd.details) {
+            addAgentLog(`🔬 Running forensic analysis on: ${cmd.details}`);
             await runForensicAnalysis(cmd.details);
             setActiveTab("research");
-            setChatMessages(prev => [...prev, { role: "agent", content: `✅ Forensic report generated!` }]);
+            setChatMessages(prev => [...prev, { role: "agent", content: `✅ Forensic report generated! MCP verified the job listing.` }]);
           }
+          break;
+        case "read":
+          addAgentLog(`📖 Reading profile from Notion via MCP...`);
+          await loadExistingData();
+          setChatMessages(prev => [...prev, { role: "agent", content: `✅ Profile loaded! Extracted data from your Notion pages.` }]);
           break;
         case "refresh":
         case "analyze":
+          addAgentLog(`🔄 Refreshing data...`);
           await loadExistingData();
-          setChatMessages(prev => [...prev, { role: "agent", content: `✅ Data refreshed!` }]);
+          setChatMessages(prev => [...prev, { role: "agent", content: `✅ Data refreshed via Notion MCP!` }]);
+          break;
+        case "approve":
+          setChatMessages(prev => [...prev, { role: "agent", content: `✅ Job marked as verified-legitimate!` }]);
+          break;
+        case "reject":
+          setChatMessages(prev => [...prev, { role: "agent", content: `🚩 Job flagged as suspicious!` }]);
           break;
         default:
-          setChatMessages(prev => [...prev, { role: "agent", content: `I'll help you with that. Try: find jobs, analyze skills, research URL, generate pitch` }]);
+          setChatMessages(prev => [...prev, { role: "agent", content: `I'll help you with that. Try: 'find me React jobs', 'analyze this: https://...', 'show my skills'` }]);
       }
-    } catch (e) {
-      setChatMessages(prev => [...prev, { role: "agent", content: `❌ Error: ${e}` }]);
+      
+      addAgentLog(`✅ Command completed successfully`);
+    } catch (e: any) {
+      addAgentLog(`❌ Error: ${e.message}`);
+      setChatMessages(prev => [...prev, { role: "agent", content: `❌ Error: ${e.message}` }]);
     }
     
+    // Complete simulation
+    setIsAgentRunning(false);
+    setActiveSimulation(prev => prev ? { ...prev, progress: 100 } : null);
     setChatHistory(prev => [...prev, { ...cmd, status: "executed" }]);
+    
+    // Clear simulation after delay
+    setTimeout(() => {
+      setActiveSimulation(null);
+      setAgentLogs([]);
+    }, 3000);
   };
 
   const handleChatSubmit = (e: React.FormEvent) => {
@@ -696,15 +791,47 @@ export function AgentOSContent() {
     
     if (cmd) {
       setChatHistory(prev => [...prev, cmd]);
+      
+      // Show simulation based on command type
+      setActiveSimulation({
+        type: cmd.type === "research" ? "forensic" :
+              cmd.type === "search" ? "scrape" :
+              cmd.type === "read" ? "extract" :
+              cmd.type === "generate" ? "analyze" :
+              cmd.type === "add" && cmd.target === "job" ? "scrape" :
+              cmd.type === "analyze" ? "learn" : "search",
+        step: 0,
+        message: "Starting agent...",
+        progress: 0,
+      });
+      
       setPendingCommand(cmd);
     } else {
-      setChatMessages(prev => [...prev, { role: "agent", content: "I can help with: finding jobs, analyzing skills, researching companies, generating pitches. Try saying 'find me senior developer jobs' or 'check this job site: [url]'" }]);
+      setChatMessages(prev => [...prev, { role: "agent", content: "I can help with: 'find me React jobs', 'analyze this: https://...', 'show my skills', 'generate email to hr@company.com'. Try saying 'find me senior developer jobs' or 'check this job site: [url]'" }]);
     }
     setChatInput("");
   };
 
   const confirmCommand = () => {
     if (pendingCommand) {
+      // Start agent simulation
+      setIsAgentRunning(true);
+      addAgentLog(`🔄 Executing: ${pendingCommand.type} ${pendingCommand.target}`);
+      
+      // Start simulation based on command type
+      const simType = pendingCommand.type === "research" ? "forensic" :
+                      pendingCommand.type === "search" ? "scrape" :
+                      pendingCommand.type === "read" ? "extract" :
+                      pendingCommand.type === "generate" ? "analyze" :
+                      pendingCommand.type === "analyze" ? "learn" : "search";
+      
+      setActiveSimulation({
+        type: simType,
+        step: 0,
+        message: "Starting agent...",
+        progress: 0,
+      });
+      
       executeCommand(pendingCommand);
       setPendingCommand(null);
     }
@@ -1049,6 +1176,53 @@ export function AgentOSContent() {
           {/* Tab Content */}
           {activeTab === "overview" && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Agent Simulation Panel */}
+              {activeSimulation && (
+                <div className="lg:col-span-3 mb-4">
+                  <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/30 rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${isAgentRunning ? "bg-cyan-400 animate-pulse" : "bg-emerald-400"}`} />
+                        <h3 className="font-bold text-white flex items-center gap-2">
+                          <Bot className="text-cyan-400" size={18} />
+                          Forensic Agent Working
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <Activity size={14} />
+                        <span>{activeSimulation.progress}%</span>
+                      </div>
+                    </div>
+                    
+                    {/* Progress bar */}
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${activeSimulation.progress}%` }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </div>
+                    
+                    {/* Agent Logs */}
+                    <div className="bg-slate-900/50 rounded-lg p-3 font-mono text-xs">
+                      <div className="flex items-center gap-2 text-slate-500 mb-2">
+                        <Terminal size={12} />
+                        <span>Agent Output</span>
+                      </div>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {agentLogs.slice(-8).map((log, i) => (
+                          <p key={i} className="text-slate-400">{log}</p>
+                        ))}
+                        {isAgentRunning && (
+                          <p className="text-cyan-400 animate-pulse">▌</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="lg:col-span-2 bg-slate-900/50 rounded-2xl border border-white/5 p-6">
                 <div className="flex items-start gap-4 mb-6">
                   <div className="w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center">

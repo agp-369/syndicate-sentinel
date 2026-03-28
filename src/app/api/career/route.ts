@@ -41,14 +41,14 @@ export async function POST(req: NextRequest) {
       
       // 3. If no infrastructure, initialize via MCP
       if (!setup.jobLedgerId) {
-        // Find a parent page to host the databases using robust search
-        const searchRes = await mcp.searchWorkspace();
-        const parentPageId = searchRes.find(item => item.object === "page")?.id;
+        // Find a parent page using v2.0 search results
+        const searchRes = await mcp.gateway.callTool("notion_search", { page_size: 10 });
+        const parentPageId = (searchRes?.results || []).find((item: any) => item.object === "page")?.id;
         
         if (parentPageId) {
           setup = await mcp.initializeWorkspace(parentPageId);
         } else {
-          throw new Error("No shared page found to initialize workspace. Please share at least one page with the Lumina integration in Notion.");
+          throw new Error("No shared page found. Please share a page with Lumina in Notion.");
         }
       }
 

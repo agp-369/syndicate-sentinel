@@ -50,7 +50,7 @@ export class NotionMCPGateway {
         requestInit: {
           headers: {
             "Authorization": `Bearer ${this.token}`,
-            "Notion-Version": "2022-06-28",
+            "Notion-Version": "2025-09-03",
             "Content-Type": "application/json",
           },
         },

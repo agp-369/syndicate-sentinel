@@ -26,19 +26,18 @@ export async function GET() {
     const mcp = new NotionMCPClient(token);
     
     // Robust search without filters to get everything first
-    const searchRes = await mcp.searchWorkspace();
+    const searchRes = await mcp.gateway.callTool("notion_search", { 
+      page_size: 100 
+    });
 
-    const pages = searchRes.map((item: any) => {
+    const pages = searchRes.results.map((item: any) => {
       let title = "Untitled";
       if (item.object === "page") {
         title = item.properties?.title?.title?.[0]?.plain_text ||
                 item.properties?.Name?.title?.[0]?.plain_text ||
-                item.properties?.["Job Title"]?.title?.[0]?.plain_text ||
                 "Untitled Page";
-      } else if (item.object === "database") {
-        title = item.title?.[0]?.plain_text || 
-                item.title?.[0]?.text?.content || 
-                "Untitled Database";
+      } else if (item.object === "data_source") {
+        title = item.name || "Untitled Data Source";
       }
       
       return {

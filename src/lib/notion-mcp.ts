@@ -264,16 +264,36 @@ export class NotionMCPClient {
         } catch {}
       }
 
-      // Use AI to extract profile
       if (fullText.length > 0) {
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-          const aiRes = await model.generateContent(
-            `Extract professional profile JSON from this Notion content. Return JSON with: name, email, headline, summary, skills (array), yearsOfExperience, currentRole, currentCompany. Content: ${fullText.join("\n").substring(0, 5000)}`
-          );
+          const prompt = `You are a strict data extraction agent. Extract professional profile data from the provided Notion content.
+RULES:
+1. ONLY extract information explicitly stated in the text.
+2. DO NOT hallucinate, guess, or infer skills, roles, or experience.
+3. If a field is not found, leave it as an empty string ("") or empty array ([]).
+4. For yearsOfExperience, only output a number if explicitly stated, otherwise 0.
+5. Return ONLY a valid JSON object matching this schema exactly, with no markdown formatting or extra text:
+{
+  "name": "string",
+  "email": "string",
+  "headline": "string",
+  "summary": "string",
+  "skills": ["string"],
+  "yearsOfExperience": number,
+  "currentRole": "string",
+  "currentCompany": "string"
+}
+
+CONTENT TO ANALYZE:
+${fullText.join("\n").substring(0, 5000)}`;
+
+          const aiRes = await model.generateContent(prompt);
           const extracted = JSON.parse(aiRes.response.text().replace(/```json/g, "").replace(/```/g, "").trim());
           Object.assign(profile, extracted);
-        } catch {}
+        } catch (e) {
+          console.error("Failed to extract profile:", e);
+        }
       }
     } finally {
       await this.gateway.close();
@@ -286,8 +306,8 @@ export class NotionMCPClient {
    * Log forensic analysis result to Notion
    */
   async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
-    const statusName = analysis.verdict.includes("LEGITIMATE") ? "✅ Verified" : 
-                       analysis.verdict.includes("SCAM") ? "🚨 Scam Risk" : "⚠️ Review";
+    // Human-in-the-loop: All forensic reports go to AWAITING_REVIEW first for user approval.
+    const statusName = "🟡 AWAITING_REVIEW";
     
     try {
       const result = await this.gateway.callTool("notion-create-pages", {
@@ -296,16 +316,24 @@ export class NotionMCPClient {
           "Job Title": { title: [{ text: { content: `${analysis.jobDetails.company}: ${analysis.jobDetails.title}` } }] },
           "Status": { select: { name: statusName } },
           "Trust Score": { number: (analysis.score || 50) / 100 },
-          "Company": { rich_text: [{ text: { content: analysis.jobDetails.company } }] }
+          "Company": { rich_text: [{ text: { content: analysis.jobDetails.company } }] },
+          "Job URL": { url: url }
         },
         children: [
           {
             object: "block",
             type: "callout",
             callout: {
-              rich_text: [{ type: "text", text: { content: `VERDICT: ${analysis.verdict} (${analysis.score}%)` } }],
+              rich_text: [{ type: "text", text: { content: `FORENSIC VERDICT: ${analysis.verdict} (${analysis.score}%)\n\nPlease review and approve this verdict in the Lumina dashboard.` } }],
               icon: { emoji: analysis.verdict.includes("LEGITIMATE") ? "✅" : "🚨" },
               color: analysis.verdict.includes("LEGITIMATE") ? "green_background" : "red_background"
+            }
+          },
+          {
+            object: "block",
+            type: "paragraph",
+            paragraph: {
+              rich_text: [{ type: "text", text: { content: analysis.jobDetails.summary || "No summary provided." } }]
             }
           },
           ...analysis.analysis.flags.map((flag: string) => ({

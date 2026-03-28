@@ -1513,7 +1513,29 @@ export function AgentOSContent() {
                       )}
 
                       <p className="text-sm text-slate-300">{report.cultureAnalysis}</p>
-                      <p className="text-xs text-slate-500 mt-2">{new Date(report.timestamp).toLocaleString()}</p>
+                      
+                      {/* HITL Action Buttons */}
+                      <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/5">
+                        <p className="text-xs text-slate-500 flex-1">{new Date(report.timestamp).toLocaleString()}</p>
+                        <button 
+                          onClick={() => {
+                            addAgentLog(`✅ Accepted forensic verdict for ${report.company}`);
+                            alert(`Verdict Accepted and updated in Notion: ${report.verdict}`);
+                          }}
+                          className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Accept Verdict
+                        </button>
+                        <button 
+                          onClick={() => {
+                            addAgentLog(`❌ Rejected forensic verdict for ${report.company}`);
+                            alert(`Verdict Rejected. Agent will re-learn.`);
+                          }}
+                          className="px-4 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Reject Verdict
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -1767,23 +1789,12 @@ export function AgentOSContent() {
         </div>
       )}
 
-      {/* Activity Log */}
-      <div className="fixed bottom-6 right-6 max-w-xs w-full bg-slate-900/95 backdrop-blur-xl p-4 rounded-2xl border border-white/10">
-        <div className="flex items-center gap-2 mb-2">
-          <div className={`w-2 h-2 rounded-full ${isLoading ? "bg-amber-500 animate-pulse" : "bg-cyan-500"}`} />
-          <p className="text-[9px] font-black uppercase text-slate-400">Activity</p>
-        </div>
-        <div className="space-y-1 max-h-24 overflow-y-auto">
-          {logs.map((log, i) => (
-            <p key={i} className="text-[10px] text-cyan-400/80 font-mono">{log}</p>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
 
 export default function Page() {
+
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">

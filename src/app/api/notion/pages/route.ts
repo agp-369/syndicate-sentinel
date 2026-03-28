@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { NotionMCPClient } from "@/lib/notion-mcp";
+import { Client } from "@notionhq/client";
 
 const COOKIE_NAME = "notion_token";
 
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/notion/pages
- * Lists all pages accessible to the integration via Notion MCP
+ * Lists all pages accessible to the integration
+ * Uses direct Notion API (more reliable than MCP for this)
  */
 export async function GET() {
   const token = await getTokenFromCookie();
@@ -23,32 +24,28 @@ export async function GET() {
   }
 
   try {
-    const mcp = new NotionMCPClient(token);
+    const notion = new Client({ auth: token });
     
-    // Robust search using v2.0 tool name
-    const searchRes = await mcp.gateway.callTool("notion-search", { 
-      page_size: 100 
+    // Search for all pages
+    const search = await notion.search({
+      filter: { property: "object", value: "page" },
+      page_size: 100,
+      sort: { direction: "descending", timestamp: "last_edited_time" },
     });
 
-    const pages = searchRes.results.map((item: any) => {
-      let title = "Untitled";
-      if (item.object === "page") {
-        title = item.properties?.title?.title?.[0]?.plain_text ||
-                item.properties?.Name?.title?.[0]?.plain_text ||
-                "Untitled Page";
-      } else if (item.object === "data_source") {
-        title = item.name || "Untitled Data Source";
-      }
+    const pages = search.results.map((page: any) => {
+      const title = page.properties?.title?.title?.[0]?.plain_text ||
+                    page.properties?.Name?.title?.[0]?.plain_text ||
+                    "Untitled";
       
       return {
-        id: item.id,
+        id: page.id,
         title: title,
-        url: item.url,
-        type: item.object,
-        lastEdited: item.last_edited_time,
-        icon: item.icon?.emoji || item.icon?.external?.url || item.icon?.file?.url || null,
-        parentId: item.parent?.page_id || item.parent?.database_id || item.parent?.block_id || null,
-        parentType: item.parent?.type || null,
+        url: page.url,
+        type: page.object,
+        lastEdited: page.last_edited_time,
+        icon: page.icon?.emoji || null,
+        parentId: page.parent?.page_id || page.parent?.database_id || null,
         hasChildren: false,
       };
     });
@@ -60,22 +57,9 @@ export async function GET() {
     });
 
   } catch (err: any) {
-    console.error("[NOTION_PAGES_MCP] Full Error:", err);
-    console.error("[NOTION_PAGES_MCP] Error message:", err.message);
-    console.error("[NOTION_PAGES_MCP] Error code:", err.code);
-    console.error("[NOTION_PAGES_MCP] Error status:", err.status);
-    
-    // Check if it's an MCP connection error
-    const errorMessage = err.message || "Failed to fetch Notion pages";
-    const isMCPError = errorMessage.includes("mcp.notion.com") || errorMessage.includes("fetch");
-    
+    console.error("[NOTION_PAGES] Error:", err.message);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: errorMessage,
-        isMCPError,
-        tokenPrefix: token ? token.substring(0, 10) + "..." : "no token"
-      },
+      { success: false, error: err.message || "Failed to fetch Notion pages" },
       { status: 500 }
     );
   }
@@ -103,7 +87,7 @@ export async function POST(req: Request) {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 30, // 30 days
+    maxAge: 60 * 60 * 24 * 30,
     path: "/",
   });
 

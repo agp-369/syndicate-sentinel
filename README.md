@@ -1,5 +1,7 @@
 # Forensic Career OS: Sovereign MCP Node v3.0
 
+**Live URL:** [https://syndicate-sentinel.vercel.app](https://syndicate-sentinel.vercel.app)
+
 The winning submission for the **Notion MCP Challenge**. This isn't just an integration; it's an **Autonomous Career Intelligence Layer** built entirely on the Model Context Protocol.
 
 ## 🚀 True MCP Core Power (How it Wins)

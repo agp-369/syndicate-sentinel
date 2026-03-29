@@ -2,6 +2,8 @@
 
 **Notion MCP Challenge Submission**
 
+**Live Demo:** [https://syndicate-sentinel.vercel.app](https://syndicate-sentinel.vercel.app)
+
 ## What I Built
 
 **Lumina** is an autonomous career intelligence system that transforms job searching from chaotic spreadsheets into a forensic, AI-powered experience. Built specifically for the Notion MCP Challenge, it showcases true agentic workflows with real-time visualization.

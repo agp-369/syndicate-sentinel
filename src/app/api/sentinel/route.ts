@@ -24,12 +24,13 @@ export async function POST(req: NextRequest) {
         success: true,
         ...setup,
         connected: true,
-        infraCreated: !!setup.jobsDataSourceId
+        infraCreated: !!setup.jobsDataSourceId,
+        transactions: mcp.getTransactions()
       });
     }
-    return NextResponse.json({ success: false, error: "Invalid mode" }, { status: 400 });
+    return NextResponse.json({ success: false, error: "Invalid mode", transactions: mcp.getTransactions() }, { status: 400 });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message, transactions: [] }, { status: 500 });
   }
 }
 
@@ -43,9 +44,10 @@ export async function GET() {
     return NextResponse.json({
       connected: true,
       infraCreated: !!setup.jobsDataSourceId,
-      ...setup
+      ...setup,
+      transactions: mcp.getTransactions()
     });
   } catch (err) {
-    return NextResponse.json({ connected: true, infraCreated: false });
+    return NextResponse.json({ connected: true, infraCreated: false, transactions: [] });
   }
 }

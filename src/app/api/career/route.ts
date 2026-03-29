@@ -2,12 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { JobRecommendationEngine } from "@/lib/job-engine";
 import { NotionMCPClient } from "@/lib/notion-mcp";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { runForensicAudit } from "@/lib/intelligence";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 async function getToken(): Promise<string | null> {
   const cookieStore = await cookies();
@@ -19,44 +17,74 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ success: false, error: "Notion not connected" }, { status: 401 });
 
   try {
-    const { mode, selectedPages } = await req.json();
+    const { mode, selectedPages, url, count } = await req.json();
     const mcp = new NotionMCPClient(token);
     const engine = new JobRecommendationEngine();
 
-    // 1. Discover existing infrastructure or create if missing
+    // 1. Discover existing infrastructure
     let setup = await mcp.searchDatabases();
     
-    // 2. Extract profile data
+    // 2. Extract/Read profile
     const profile = await mcp.discoverAndReadProfile(selectedPages || []);
     
-    // 3. Handle Full Setup
+    // 3. Handle Infrastructure Setup
     if (mode === "FULL_SETUP" || mode === "SETUP") {
       const parentId = (selectedPages || [])[0];
       if (parentId) {
         const newSetup = await mcp.initializeWorkspace(parentId);
         setup = { ...setup, ...newSetup };
+        
+        // 4. Save Profile to the new infrastructure
+        if (setup.careerPageId) {
+          await mcp.saveProfile(setup.careerPageId, profile);
+        }
+
+        // 5. Generate and save initial matching jobs
+        if (setup.jobsDataSourceId && profile.skills.length > 0) {
+          const recommendedJobs = await engine.generateRecommendations(profile, 5);
+          for (const job of recommendedJobs) {
+            await mcp.gateway.callTool("notion-create-pages", {
+              parent: { database_id: setup.jobsDataSourceId },
+              properties: {
+                "Job Title": { title: [{ text: { content: job.title } }] },
+                "Company": { rich_text: [{ text: { content: job.company } }] },
+                "Match Score": { number: (job.matchScore || 0) / 100 },
+                "Status": { select: { name: "🔍 Researching" } },
+                "Job URL": { url: job.url || "" }
+              }
+            });
+          }
+        }
+
+        // 6. Generate and save initial skill DNA
+        if (setup.skillsDataSourceId && profile.skills.length > 0) {
+          const gaps = await engine.analyzeSkillGaps(profile);
+          await mcp.saveSkillGaps(setup.skillsDataSourceId, gaps);
+        }
       }
     }
 
-    // 4. Generate AI content based on profile
-    let jobs: any[] = [];
-    let skillGaps: any[] = [];
-    
-    if (profile && profile.skills?.length > 0) {
-      const [recommendedJobs, trendingSkills] = await Promise.all([
-        engine.generateRecommendations(profile, 6),
-        engine.analyzeSkillGaps(profile)
-      ]);
-      
-      jobs = recommendedJobs;
-      skillGaps = trendingSkills;
+    // --- FEATURE MODES ---
+
+    if (mode === "FORENSIC_ANALYSIS") {
+      const analysis = await runForensicAudit(url);
+      // Map to frontend expected format
+      return NextResponse.json({ 
+        success: true, 
+        analysis: {
+          verdict: analysis.verdict,
+          trustScore: analysis.score,
+          redFlags: analysis.analysis.flags,
+          cultureAnalysis: analysis.analysis.cultureMatch,
+          jobDetails: analysis.jobDetails,
+          cyberMetadata: analysis.analysis.cyberMetadata
+        } 
+      });
     }
 
-    // 5. Handle Action Logging (HITL)
     if (mode === "LOG_ACTION") {
       const { action, details, jobId } = await req.json();
       if (jobId) {
-        // Update existing page
         await mcp.gateway.callTool("notion-update-page", {
           page_id: jobId,
           properties: {
@@ -64,7 +92,6 @@ export async function POST(req: NextRequest) {
           }
         });
         
-        // Also add a comment or block explaining the action
         await mcp.gateway.callTool("notion-create-pages", {
           parent: { database_id: setup.jobsDataSourceId! },
           properties: {
@@ -77,32 +104,11 @@ export async function POST(req: NextRequest) {
             { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: details.summary || "" } }] } }
           ]
         });
-        return NextResponse.json({ success: true, message: "Action logged and page updated" });
-      } else if (setup.jobsDataSourceId) {
-        await mcp.gateway.callTool("notion-create-pages", {
-          parent: { database_id: setup.jobsDataSourceId },
-          properties: {
-            "Job Title": { title: [{ text: { content: `[ACTION] ${action}` } }] },
-            "Status": { select: { name: "✅ Verified" } },
-            "Company": { rich_text: [{ text: { content: details.company || "Unknown" } }] }
-          },
-          children: [
-            { object: "block", type: "callout", callout: { rich_text: [{ text: { content: `Action: ${action} - ${new Date().toLocaleString()}` } }], icon: { type: "emoji", emoji: "⚡" }, color: "blue_background" } },
-            { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: details.summary || "" } }] } }
-          ]
-        });
-        return NextResponse.json({ success: true, message: "Action logged to Notion" });
+        return NextResponse.json({ success: true });
       }
     }
 
-    if (mode === "FORENSIC_ANALYSIS") {
-      const { url } = await req.json();
-      const analysis = await engine.forensicAnalysis(url);
-      return NextResponse.json({ success: true, analysis });
-    }
-
     if (mode === "GENERATE_JOBS") {
-      const { count } = await req.json();
       const jobs = await engine.generateRecommendations(profile, count || 6);
       return NextResponse.json({ success: true, jobs });
     }
@@ -112,35 +118,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, gaps });
     }
 
-    if (mode === "LOAD_DATA") {
-      return NextResponse.json({ success: true, profile, infrastructure: setup });
-    }
-
-    // 6. Save initial jobs to Notion if this is a setup
-    if ((mode === "FULL_SETUP" || mode === "SETUP") && setup.jobsDataSourceId && jobs.length > 0) {
-      for (const job of jobs.slice(0, 3)) {
-        try {
-          await mcp.gateway.callTool("notion-create-pages", {
-            parent: { database_id: setup.jobsDataSourceId },
-            properties: {
-              "Job Title": { title: [{ text: { content: job.title } }] },
-              "Company": { rich_text: [{ text: { content: job.company } }] },
-              "Match Score": { number: job.matchScore / 100 },
-              "Status": { select: { name: "🔍 Researching" } },
-              "Job URL": { url: job.url || "" }
-            }
-          });
-        } catch (e) {
-          console.error(`Failed to save job ${job.title}:`, e);
-        }
-      }
-    }
-
+    // Default response for setup or data load
     return NextResponse.json({
       success: true,
       profile,
-      jobs: jobs.map((j, i) => ({ ...j, id: `job_${i}`, status: "researching" })),
-      skills: skillGaps,
       infrastructure: setup,
       setupComplete: !!(setup.jobsDataSourceId && setup.skillsDataSourceId)
     });
@@ -163,7 +144,7 @@ export async function GET() {
     let skills: any[] = [];
 
     if (setup.jobsDataSourceId) {
-      const results = await mcp.queryDataSource(setup.jobsDataSourceId, 20);
+      const results = await mcp.queryDataSource(setup.jobsDataSourceId, 50);
       jobs = (results as any).results.map((page: any) => {
         const props = page.properties;
         return {
@@ -178,6 +159,15 @@ export async function GET() {
       });
     }
 
+    if (setup.skillsDataSourceId) {
+      const results = await mcp.queryDataSource(setup.skillsDataSourceId, 50);
+      skills = (results as any).results.map((page: any) => ({
+        id: page.id,
+        skill: page.properties["Skill Name"]?.title?.[0]?.plain_text || "Skill",
+        proficiency: page.properties["Proficiency"]?.select?.name || "Intermediate"
+      }));
+    }
+
     return NextResponse.json({
       success: true,
       jobs,
@@ -190,4 +180,3 @@ export async function GET() {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
-

@@ -21,10 +21,11 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       processedCount: results.length,
-      results
+      results,
+      transactions: watchdog.mcp?.getTransactions() || []
     });
   } catch (error: any) {
     console.error("[WATCHDOG_API] Error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message, transactions: [] }, { status: 500 });
   }
 }

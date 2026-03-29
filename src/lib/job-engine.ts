@@ -40,7 +40,7 @@ export interface TrendingSkill {
 }
 
 export class JobRecommendationEngine {
-  private model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  private model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   /**
    * Analyze user profile and find skill gaps

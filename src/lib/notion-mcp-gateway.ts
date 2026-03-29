@@ -120,7 +120,7 @@ export class NotionMCPGateway {
       
       const headers = {
         Authorization: `Bearer ${this.token}`,
-        "Notion-Version": "2026-03-11",
+        "Notion-Version": "2022-06-28",
         "Content-Type": "application/json"
       };
 
@@ -184,6 +184,15 @@ export class NotionMCPGateway {
           method: "PATCH",
           headers,
           body: JSON.stringify(updateArgs)
+        });
+        parsed = await res.json();
+      }
+      else if (normalizedToolName === "notion-append-blocks" || normalizedToolName === "append-blocks") {
+        const { block_id, ...appendArgs } = args as any;
+        const res = await fetch(`https://api.notion.com/v1/blocks/${block_id}/children`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(appendArgs)
         });
         parsed = await res.json();
       }

@@ -6,6 +6,7 @@ import { runForensicAudit } from "./intelligence";
 export class SentinelWatchdog {
   private notionToken: string;
   private genAI: GoogleGenerativeAI;
+  public mcp: NotionMCPClient | null = null;
 
   constructor(notionToken: string) {
     this.notionToken = notionToken;
@@ -16,7 +17,8 @@ export class SentinelWatchdog {
    * Automatically scan the Jobs database via MCP for new entries and run forensics
    */
   async runFullScan(careerPageId: string, profile: any) {
-    const mcp = new NotionMCPClient(this.notionToken);
+    this.mcp = new NotionMCPClient(this.notionToken);
+    const mcp = this.mcp;
     
     // 1. Find Lumina databases via MCP
     const setup = await mcp.searchDatabases();

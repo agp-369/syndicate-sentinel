@@ -46,14 +46,18 @@ export class JobRecommendationEngine {
    * Analyze user profile and find skill gaps
    */
   async analyzeSkillGaps(profile: UserProfile): Promise<TrendingSkill[]> {
+    const skills = profile.skills || [];
+    const goals = profile.goals || [];
+    const experience = profile.experience || [];
+    
     const prompt = `
 You are a career intelligence AI analyzing a professional's skill profile.
 
 USER PROFILE:
-- Skills: ${profile.skills.join(", ")}
-- Headline: ${profile.headline}
-- Experience: ${profile.experience.map(e => `${e.role} at ${e.company}`).join(", ") || "Not specified"}
-- Goals: ${profile.goals.join(", ") || "Not specified"}
+- Skills: ${skills.join(", ")}
+- Headline: ${profile.headline || "Not specified"}
+- Experience: ${experience.map(e => `${e.role} at ${e.company}`).join(", ") || "Not specified"}
+- Goals: ${goals.join(", ") || "Not specified"}
 
 TRENDING TECH SKILLS FOR 2026:
 Research and identify the most in-demand skills for tech professionals.
@@ -104,18 +108,23 @@ Focus on skills that:
    * Generate personalized job recommendations based on profile
    */
   async generateRecommendations(profile: UserProfile, count: number = 10): Promise<MatchedJob[]> {
+    const skills = profile.skills || [];
+    const goals = profile.goals || [];
+    const experience = profile.experience || [];
+    const education = profile.education || [];
+    
     const prompt = `
 You are a career intelligence AI generating personalized job recommendations.
 
 USER PROFILE:
-- Name: ${profile.name}
-- Headline: ${profile.headline}
-- Summary: ${profile.summary}
-- Skills: ${profile.skills.join(", ")}
-- Experience: ${profile.experience.map(e => `${e.role} at ${e.company} (${e.duration})`).join("; ") || "Entry to mid level"}
-- Education: ${profile.education.map(e => `${e.degree} at ${e.institution}`).join("; ") || "Not specified"}
-- Goals: ${profile.goals.join(", ") || "Career growth"}
-- Preferences: ${profile.preferences.remote ? "Prefers remote work" : ""}
+- Name: ${profile.name || "Professional"}
+- Headline: ${profile.headline || "Software Developer"}
+- Summary: ${profile.summary || ""}
+- Skills: ${skills.join(", ")}
+- Experience: ${experience.map(e => `${e.role} at ${e.company} (${e.duration || ""})`).join("; ") || "Entry to mid level"}
+- Education: ${education.map(e => `${e.degree} at ${e.institution}`).join("; ") || "Not specified"}
+- Goals: ${goals.join(", ") || "Career growth"}
+- Preferences: ${profile.preferences?.remote ? "Prefers remote work" : ""}
 
 Generate ${count} REALISTIC, VERIFIABLE personalized job recommendations that would be great matches for this profile.
 DO NOT INVENT FAKE COMPANIES OR FAKE ROLES. ONLY suggest real-world, widely-known companies that actively hire for these roles.
@@ -337,7 +346,17 @@ IMPORTANT: This email goes through Human-in-the-Loop review before sending.
     }
 
     const $ = cheerio.load(jobHtml);
-    const jobText = $("body").text().replace(/\s+/g, " ").trim().substring(0, 15000);
+    $("script, style, noscript, nav, footer").remove();
+    let jobText = $("body").text().replace(/\s+/g, " ").trim();
+      
+    // Fallback for JS-heavy SPAs (e.g. Microsoft Careers, LinkedIn)
+    if (jobText.length < 200) {
+      const title = $("title").text();
+      const desc = $('meta[name="description"]').attr("content") || "";
+      const ogTitle = $('meta[property="og:title"]').attr("content") || "";
+      jobText = `URL: ${url}\nPage Title: ${title} ${ogTitle}\nMeta Description: ${desc}`;
+    }
+    jobText = jobText.substring(0, 15000);
 
     const prompt = `
 You are a forensic job analysis AI. Your job is to verify job postings and detect scams.

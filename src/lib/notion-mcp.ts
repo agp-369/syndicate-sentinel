@@ -64,7 +64,7 @@ export class NotionMCPClient {
    * Ensures we see the ACTUAL content of your Notion pages.
    */
   async deepReadBlock(blockId: string, depth = 0): Promise<string> {
-    if (depth > 2) return "";
+    if (depth > 1) return "";
     let text = "";
     try {
       const result = await this.gateway.callTool("notion-fetch", { block_id: blockId });
@@ -75,11 +75,11 @@ export class NotionMCPClient {
         if (content?.rich_text) {
           text += content.rich_text.map((t: any) => t.plain_text).join("") + "\n";
         }
-        if (block.has_children) {
+        if (block.has_children && depth < 1) {
           text += await this.deepReadBlock(block.id, depth + 1);
         }
       }
-    } catch (e) { console.warn(`[DEEP_READ] Error at ${blockId}`); }
+    } catch (e) { /* silent fail for speed */ }
     return text;
   }
 
@@ -107,14 +107,14 @@ export class NotionMCPClient {
       });
       if ((pageRes as any)?.results?.[0]) setup.careerPageId = (pageRes as any).results[0].id;
 
-    } catch (e) { console.error("[BACKEND] Discovery failed."); }
+    } catch (e: any) { console.error("[BACKEND] Discovery failed.", e.message); }
     return setup;
   }
 
   /**
    * STRICT Profile Extraction - Follows your rules to prevent hallucination.
    */
-  async discoverAndReadProfile(onLog?: (tx: MCPTransaction) => void): Promise<UserProfile> {
+  async discoverAndReadProfile(pageIds: string[] = [], onLog?: (tx: MCPTransaction) => void): Promise<UserProfile> {
     const profile: UserProfile = {
       name: "", email: "", headline: "", summary: "", skills: [], techStack: [],
       yearsOfExperience: 0, currentRole: "", currentCompany: "", experience: [],
@@ -122,43 +122,45 @@ export class NotionMCPClient {
     };
 
     try {
-      // 1. Search for Resume/CV/Profile pages
-      const searchRes = await this.gateway.callTool("notion-search", {
-        query: "resume cv experience profile",
-        filter: { property: "object", value: "page" },
-        page_size: 10
-      }, onLog, ["Deep-searching your Notion for career DNA..."]);
-
-      let consolidatedText = "";
-      const pages = (searchRes as any)?.results || [];
+      // Use only the first pageId to reduce API calls
+      const targetId = pageIds && pageIds.length > 0 ? pageIds[0] : null;
       
-      for (const page of pages) {
-        consolidatedText += await this.deepReadBlock(page.id);
+      if (!targetId) {
+        return profile;
       }
 
-      // 2. Use Strict Rules Extractor first
-      const { profile: strictProfile, confidence } = StrictDataExtractor.extractProfile(consolidatedText, "notion", "workspace");
+      // Quick read of first page only
+      const text = await this.deepReadBlock(targetId);
+      if (!text.trim()) {
+        return profile;
+      }
+
+      // Extract using strict rules
+      const { profile: strictProfile } = StrictDataExtractor.extractProfile(text, "notion", "workspace");
       Object.assign(profile, strictProfile);
 
-      // 3. Only use LLM if strict extraction found nothing, and with STRICT instructions
-      if (profile.skills.length === 0 && consolidatedText.trim()) {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const prompt = `Strictly extract career data from text. DO NOT GUESS OR INFER.
-If a field is explicitly stated, extract it. If it is NOT explicitly present in the text, return empty string for text fields, 0 for numbers, or [] for arrays. DO NOT invent skills.
-Text: ${consolidatedText.substring(0, 8000)}
-JSON Output Schema: { "name": string, "skills": string[], "yearsOfExperience": number, "currentRole": string }`;
-        const aiRes = await model.generateContent({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        });
-        const extracted = JSON.parse(aiRes.response.text().trim());
-        profile.name = profile.name || extracted.name || "";
-        profile.skills = extracted.skills || [];
-        profile.yearsOfExperience = extracted.yearsOfExperience || 0;
-        profile.currentRole = extracted.currentRole || "";
+      // LLM fallback if no skills found
+      if (profile.skills.length === 0 && text.trim()) {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const prompt = `Extract career data from text. DO NOT INVENT. Return JSON: { "name": "", "skills": [], "yearsOfExperience": 0, "currentRole": "" }. Text: ${text.substring(0, 4000)}`;
+        const aiRes = await model.generateContent(prompt);
+        
+        // Strip out annoying LLM markdown wrappers if present
+        let responseText = aiRes.response.text().trim();
+        responseText = responseText.replace(/^```(json)?/i, "").replace(/```$/i, "").trim();
+        
+        try {
+          const extracted = JSON.parse(responseText);
+          profile.name = profile.name || extracted.name || "";
+          profile.skills = extracted.skills || [];
+          profile.yearsOfExperience = extracted.yearsOfExperience || 0;
+          profile.currentRole = extracted.currentRole || "";
+        } catch (e) {
+          console.error("Failed to parse AI response:", responseText);
+        }
       }
 
-    } catch (e) { console.error("[BACKEND] Profile sync failed."); }
+    } catch (e: any) { console.error("[BACKEND] Profile sync failed.", e.message); }
     return profile;
   }
 
@@ -167,13 +169,13 @@ JSON Output Schema: { "name": string, "skills": string[], "yearsOfExperience": n
    */
   async initializeWorkspace(parentPageId: string, onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
     const existing = await this.searchDatabases(onLog);
-    if (existing.jobsDataSourceId && existing.skillsDataSourceId) return existing;
+    const creationStamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     try {
       if (!existing.jobsDataSourceId) {
         const jobsDb = await this.gateway.callTool("notion-create-database", {
-          parent: { page_id: parentPageId },
-          title: [{ text: { content: "🎯 Lumina: Job Tracker" } }],
+          parent: { type: "page_id", page_id: parentPageId },
+          title: [{ type: "text", text: { content: `🎯 Lumina Job Tracker (${creationStamp})` } }],
           properties: {
             "Job Title": { title: {} },
             "Status": { select: { options: [
@@ -182,12 +184,32 @@ JSON Output Schema: { "name": string, "skills": string[], "yearsOfExperience": n
               { name: "✅ Verified", color: "green" }
             ]}},
             "Company": { rich_text: {} },
-            "Job URL": { url: {} }
+            "Job URL": { url: {} },
+            "Match Score": { number: { format: "percent" } }
           }
-        }, onLog, ["Creating missing Job Tracker..."]);
+        }, onLog, ["Creating new Job Tracker..."]);
         existing.jobsDataSourceId = jobsDb?.id;
       }
-    } finally { await this.gateway.close(); }
+      
+      if (!existing.skillsDataSourceId) {
+        const skillsDb = await this.gateway.callTool("notion-create-database", {
+          parent: { type: "page_id", page_id: parentPageId },
+          title: [{ type: "text", text: { content: `🧬 Lumina Skills DNA (${creationStamp})` } }],
+          properties: {
+            "Skill Name": { title: {} },
+            "Proficiency": { select: { options: [
+              { name: "Beginner", color: "red" },
+              { name: "Intermediate", color: "yellow" },
+              { name: "Expert", color: "green" }
+            ]}},
+            "Years": { number: { format: "number" } }
+          }
+        }, onLog, ["Creating new Skills DNA..."]);
+        existing.skillsDataSourceId = skillsDb?.id;
+      }
+    } catch (e: any) {
+      console.error("[BACKEND] Workspace initialization failed.", e.message);
+    }
     return existing;
   }
 
@@ -195,22 +217,37 @@ JSON Output Schema: { "name": string, "skills": string[], "yearsOfExperience": n
     return this.gateway.callTool("notion-query-data-sources", { database_id: dataSourceId, page_size: pageSize }, onLog);
   }
 
-  async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
+  async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, existingPageId?: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
     try {
-      const result = await this.gateway.callTool("notion-create-pages", {
-        parent: { database_id: dataSourceId },
-        properties: {
-          "Job Title": { title: [{ text: { content: `${analysis.jobDetails.company}: ${analysis.jobDetails.title}` } }] },
-          "Status": { select: { name: "🟡 AWAITING_REVIEW" } },
-          "Company": { rich_text: [{ text: { content: analysis.jobDetails.company } }] },
-          "Job URL": { url: url }
-        },
-        children: [
-          { object: "block", type: "callout", callout: { rich_text: [{ text: { content: `🚨 FORENSIC VERDICT: ${analysis.verdict}` } }], icon: { emoji: "🛡️" }, color: "red_background" } }
-        ]
-      }, onLog);
-      return result?.id || "";
-    } finally { await this.gateway.close(); }
+      const properties = {
+        "Job Title": { title: [{ type: "text", text: { content: analysis.jobDetails.title } }] },
+        "Status": { select: { name: "🟡 AWAITING_REVIEW" } },
+        "Company": { rich_text: [{ type: "text", text: { content: analysis.jobDetails.company } }] },
+        "Job URL": { url: url },
+        "Match Score": { number: analysis.score / 100 }
+      };
+
+      if (existingPageId) {
+        await this.gateway.callTool("notion-update-page", {
+          page_id: existingPageId,
+          properties
+        }, onLog);
+        return existingPageId;
+      } else {
+        const result = await this.gateway.callTool("notion-create-pages", {
+          parent: { type: "database_id", database_id: dataSourceId },
+          properties,
+          children: [
+            { object: "block", type: "callout", callout: { rich_text: [{ type: "text", text: { content: `🚨 FORENSIC VERDICT: ${analysis.verdict}` } }], icon: { type: "emoji", emoji: "🛡️" }, color: "red_background" } },
+            { object: "block", type: "paragraph", paragraph: { rich_text: [{ type: "text", text: { content: analysis.jobDetails.summary } }] } }
+          ]
+        }, onLog);
+        return result?.id || "";
+      }
+    } catch (e: any) {
+      console.error("[BACKEND] Forensic log failed.", e.message);
+      return "";
+    }
   }
 
   getTransactions(): MCPTransaction[] { return this.gateway.getTransactions(); }

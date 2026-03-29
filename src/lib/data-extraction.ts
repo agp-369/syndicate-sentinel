@@ -35,7 +35,8 @@ export interface ExtractedData<T> {
 const NAME_PATTERNS = [
   /^(?:name|call(?:ed| me))\s*[:\-]?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/im,
   /(?:I'm|I am)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/im,
-  /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+(?:\(|is)/m,
+  /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+—\s+/m,
+  /^([A-Z][a-z]+)\s+—/m,
 ];
 
 // Email extraction - very strict regex
@@ -45,7 +46,9 @@ const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const ROLE_PATTERNS = [
   /(?:role|position|job|title)\s*[:\-]?\s*([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){1,4})/im,
   /(?:working as|am a|as a)\s+([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+){1,4})/im,
-  /^(?:senior|junior|lead|staff|principal)?\s*([A-Za-z\s]+?)(?:\s+at|@|,|\(|engineer|developer|manager|designer|analyst)/im,
+  /—\s+([A-Z][a-z]+(?:\s+[A-Z\-]+){1,6})/m,
+  /(Full-Stack|Full Stack|Frontend|Backend|Software|Cloud|DevOps|Security)\s+(?:Developer|Engineer|Architect|Lead|Manager)/gi,
+  /(Senior|Junior|Lead|Staff|Principal)\s+([A-Za-z\s]+(?:Developer|Engineer|Manager|Analyst|Architect))/gi,
 ];
 
 // Company extraction  
@@ -62,6 +65,7 @@ const SKILL_PATTERNS = [
 
 // Experience extraction
 const EXPERIENCE_PATTERN = /(\d+)\s*(?:years?|yrs?)\s*(?:of\s*)?(?:experience|exp)/gi;
+const EXPERIENCE_PATTERN_2 = /over\s+(\d+)\s*(?:years?|yrs?)/i;
 
 // Education extraction
 const EDUCATION_PATTERNS = [
@@ -90,9 +94,9 @@ export class StrictDataExtractor {
       const match = text.match(pattern);
       if (match && match[1]) {
         const name = match[1].trim();
-        // Validate: should be 2-4 words, all capitalized
+        // Validate: should be 1-4 words, all capitalized, at least 2 chars
         const words = name.split(/\s+/);
-        if (words.length >= 2 && words.length <= 4 && words.every(w => /^[A-Z]/.test(w))) {
+        if (name.length >= 2 && words.length <= 4 && words.every(w => /^[A-Z]/.test(w))) {
           return {
             data: name,
             source: { pageId: "", pageTitle: "", confidence: "high" },
@@ -167,33 +171,38 @@ export class StrictDataExtractor {
   static extractSkills(text: string): ExtractedData<string[]> {
     const skills: string[] = [];
     
-    // Known tech skills to look for
+    // Known tech skills to look for - expanded list
     const knownSkills = [
       "JavaScript", "TypeScript", "Python", "Java", "Go", "Rust", "C++", "C#",
-      "React", "Angular", "Vue", "Svelte", "Next.js", "Node.js", "Express",
-      "AWS", "Azure", "GCP", "Docker", "Kubernetes", "Git", "SQL", "PostgreSQL",
+      "React", "Angular", "Vue", "Svelte", "Next.js", "Next", "Node.js", "Node", "Express",
+      "AWS", "Azure", "GCP", "Docker", "Kubernetes", "K8s", "Git", "SQL", "PostgreSQL",
       "MongoDB", "Redis", "GraphQL", "REST", "API", "HTML", "CSS", "SASS",
-      "Machine Learning", "AI", "Data Science", "DevOps", "CI/CD",
-      "React Native", "Flutter", "Swift", "Kotlin", "Flutter",
-      "TensorFlow", "PyTorch", "Scikit-learn", "Pandas", "NumPy"
+      "Machine Learning", "AI", "Data Science", "DevOps", "CI/CD", "TensorFlow",
+      "React Native", "Flutter", "Swift", "Kotlin", "FastAPI", "Terraform", "Lambda",
+      "PyTorch", "Scikit-learn", "Pandas", "NumPy", "EKS", "RDS", "SaaS"
     ];
 
-    for (const skill of knownSkills) {
-      // Look for explicit mentions with word boundaries
-      const pattern = new RegExp(`\\b${skill}\\b`, "gi");
-      if (pattern.test(text)) {
-        skills.push(skill);
+    // First, look for skill list sections
+    const skillSectionMatch = text.match(/Core Technical Skills[:\s]*([\s\S]{0,500})/i);
+    if (skillSectionMatch) {
+      const sectionText = skillSectionMatch[1];
+      // Split by common delimiters
+      const parts = sectionText.split(/[*:\n\-]+/);
+      for (const part of parts) {
+        const trimmed = part.trim();
+        // Check if any known skill is in this part
+        for (const skill of knownSkills) {
+          if (trimmed.toLowerCase().includes(skill.toLowerCase()) && !skills.includes(skill)) {
+            skills.push(skill);
+          }
+        }
       }
     }
 
-    // Also check for explicit skill list sections
-    const skillListMatch = text.match(/(?:skills|technologies|tech stack)[:\s]+([^\n]{10,200})/i);
-    if (skillListMatch) {
-      const listText = skillListMatch[1];
-      for (const skill of knownSkills) {
-        if (listText.toLowerCase().includes(skill.toLowerCase()) && !skills.includes(skill)) {
-          skills.push(skill);
-        }
+    // Also do a simple scan for known skills
+    for (const skill of knownSkills) {
+      if (text.toLowerCase().includes(skill.toLowerCase()) && !skills.includes(skill)) {
+        skills.push(skill);
       }
     }
 
@@ -208,7 +217,20 @@ export class StrictDataExtractor {
    * Extract years of experience
    */
   static extractExperience(text: string): ExtractedData<number> | null {
-    const match = text.match(/(\d+)\s*(?:years?|yrs?)\s*(?:of\s*)?(?:experience|exp)/i);
+    // Try "X years of experience" pattern
+    let match = text.match(/(\d+)\s*(?:years?|yrs?)\s*(?:of\s*)?(?:experience|exp)/i);
+    if (match && match[1]) {
+      const years = parseInt(match[1], 10);
+      if (years >= 0 && years <= 50) {
+        return {
+          data: years,
+          source: { pageId: "", pageTitle: "", confidence: "high" },
+          timestamp: new Date().toISOString(),
+        };
+      }
+    }
+    // Try "over X years" pattern
+    match = text.match(/over\s+(\d+)\s*(?:years?|yrs?)/i);
     if (match && match[1]) {
       const years = parseInt(match[1], 10);
       if (years >= 0 && years <= 50) {

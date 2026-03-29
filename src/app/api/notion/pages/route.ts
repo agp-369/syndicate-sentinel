@@ -49,7 +49,7 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ success: true, pages, count: pages.length });
+    return NextResponse.json({ success: true, pages, count: pages.length, debug: searchRes });
   } catch (err: any) {
     console.error("[NOTION_PAGES_MCP] Error:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

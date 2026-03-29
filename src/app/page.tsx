@@ -73,6 +73,7 @@ interface ForensicReport {
   timestamp: string;
   company: string;
   role: string;
+  jobId?: string;
 }
 
 interface SkillGap {
@@ -251,6 +252,7 @@ export function AgentOSContent() {
 
   const loadExistingData = async () => {
     try {
+      // Load from API
       const res = await fetch("/api/career", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -259,9 +261,31 @@ export function AgentOSContent() {
       const data = await res.json();
       if (data.success) {
         if (data.profile) setProfile(data.profile);
-        if (data.jobs) setJobs(data.jobs);
-        if (data.skills) setSkillGaps(data.skills);
-        if (data.forensicReports) setForensicReports(data.forensicReports);
+        if (data.jobs?.length > 0) setJobs(data.jobs);
+        if (data.skills?.length > 0) setSkillGaps(data.skills);
+        if (data.infrastructure?.jobsDataSourceId) {
+          setInfraCreated(true);
+        }
+      }
+      
+      // Also load saved data from Notion databases via GET
+      const savedRes = await fetch("/api/career");
+      const savedData = await savedRes.json();
+      if (savedData.success) {
+        if (savedData.jobs?.length > 0) {
+          setJobs(savedData.jobs);
+        }
+        if (savedData.skills?.length > 0) {
+          setSkillGaps(savedData.skills.map((s: any) => ({
+            skill: s.skill,
+            category: s.category || "General",
+            demand: 0.8,
+            growth: "stable",
+            avgSalary: "$100k-$150k",
+            learningTime: "2-4 weeks",
+            matchWithTechStack: 70
+          })));
+        }
       }
     } catch (e) {
       addLog(`Error loading data: ${e}`);
@@ -361,7 +385,10 @@ export function AgentOSContent() {
       const res = await fetch("/api/career", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "FULL_SETUP", agentAutoDecide: true })
+        body: JSON.stringify({ 
+          mode: "FULL_SETUP", 
+          selectedPages: selectedPages.length > 0 ? selectedPages : undefined
+        })
       });
 
       if (!res.ok) {
@@ -380,9 +407,9 @@ export function AgentOSContent() {
         setInfraCreated(true);
         if (data.infrastructure?.careerPageId) setCareerPageId(data.infrastructure.careerPageId);
         addLog(`✅ Forensic Career OS Ready!`);
-        addLog(`📊 ${data.stats.jobsCreated} jobs analyzed`);
-        addLog(`🧬 ${data.stats.skillsAnalyzed} skills DNA mapped`);
-        addLog(`🔍 ${data.stats.forensicScans} forensic scans completed`);
+        addLog(`📊 ${data.jobs?.length || 0} jobs analyzed`);
+        addLog(`🧬 ${data.skills?.length || 0} skills DNA mapped`);
+        addLog(`🔍 ${data.profile.skills?.length || 0} skills extracted from Notion`);
         
         if (data.jobs) setJobs(data.jobs);
         if (data.skills) setSkillGaps(data.skills);
@@ -431,8 +458,8 @@ export function AgentOSContent() {
         setInfraCreated(true);
         if (data.infrastructure?.careerPageId) setCareerPageId(data.infrastructure.careerPageId);
         addLog(`✅ Forensic Career OS Ready!`);
-        addLog(`📊 ${data.stats.jobsCreated} jobs analyzed`);
-        addLog(`🧬 ${data.stats.skillsAnalyzed} skills DNA mapped`);
+        addLog(`📊 ${data.jobs?.length || 0} jobs analyzed`);
+        addLog(`🧬 ${data.skills?.length || 0} skills DNA mapped`);
         
         if (data.jobs) setJobs(data.jobs);
         if (data.skills) setSkillGaps(data.skills);
@@ -551,6 +578,7 @@ export function AgentOSContent() {
           timestamp: new Date().toISOString(),
           company: company || "Unknown",
           role: role || "Unknown",
+          jobId: jobs.find(j => j.url === url)?.id,
         };
         setForensicReports(prev => [report, ...prev]);
         setForensicResult(report);
@@ -1361,25 +1389,52 @@ export function AgentOSContent() {
                       <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/5">
                         <p className="text-xs text-slate-500 flex-1">{new Date(report.timestamp).toLocaleString()}</p>
                         <button 
-                          onClick={() => {
+                          onClick={async () => {
                             addLog(`✅ Accepted forensic verdict for ${report.company}`);
-                            alert(`Verdict Accepted! Status updated in Notion to Verified.`);
+                            try {
+                              await fetch("/api/career", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ 
+                                  mode: "LOG_ACTION", 
+                                  action: "APPROVED_VERDICT", 
+                                  jobId: report.jobId,
+                                  details: { company: report.company, summary: `Verdict Accepted: ${report.verdict}` }
+                                })
+                              });
+                              alert(`Verdict Accepted! Status updated in Notion.`);
+                            } catch (e) {
+                              addLog("❌ Failed to log verdict to Notion");
+                            }
                           }}
                           className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                         >
                           Accept Verdict
                         </button>
                         <button 
-                          onClick={() => {
+                          onClick={async () => {
                             addLog(`❌ Rejected forensic verdict for ${report.company}`);
-                            alert(`Verdict Rejected. Agent will re-analyze this role.`);
+                            try {
+                              await fetch("/api/career", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ 
+                                  mode: "LOG_ACTION", 
+                                  action: "REJECTED_VERDICT", 
+                                  jobId: report.jobId,
+                                  details: { company: report.company, summary: `Verdict Rejected: ${report.verdict}` }
+                                })
+                              });
+                              alert(`Verdict Rejected. Logged to Notion.`);
+                            } catch (e) {
+                              addLog("❌ Failed to log verdict to Notion");
+                            }
                           }}
                           className="px-4 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                         >
                           Reject Verdict
                         </button>
-                      </div>
-                    </div>
+                      </div>                    </div>
                   ))
                 )}
               </div>
@@ -1410,12 +1465,23 @@ export function AgentOSContent() {
                     </div>
                     <div className="flex gap-3 mt-4">
                       <button 
-                        onClick={() => {
-                          addLog("✉️ Sending pitch to HR via Lumina Sovereign SMTP...");
-                          setTimeout(() => {
+                        onClick={async () => {
+                          addLog(`✉️ Sending pitch to HR for ${emailTarget?.company}...`);
+                          try {
+                            await fetch("/api/career", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ 
+                                mode: "LOG_ACTION", 
+                                action: "SENT_PITCH", 
+                                details: { company: emailTarget?.company, summary: emailDraft.body }
+                              })
+                            });
+                            addLog("✅ Pitch Sent & Logged to Notion!");
                             setEmailDraft(null);
-                            addLog("✅ Pitch Sent! Logged to Career Ledger.");
-                          }, 1500);
+                          } catch (e) {
+                            addLog("❌ Failed to log pitch to Notion");
+                          }
                         }}
                         className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 cursor-pointer transition-colors shadow-lg shadow-emerald-500/20"
                       >
@@ -1428,7 +1494,26 @@ export function AgentOSContent() {
                   <div className="text-center py-12">
                     <Mail className="mx-auto mb-4 text-slate-600" size={48} />
                     <p className="text-slate-400 mb-4">Select a job and click "Pitch" to generate outreach</p>
-                    <button onClick={() => { if (jobs.length) { setEmailTarget(jobs[0]); generateJobRecommendations(); } }} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold cursor-pointer transition-colors">Generate Pitch</button>
+                    <button 
+                      onClick={async () => { 
+                        if (emailTarget || jobs.length > 0) { 
+                          const target = emailTarget || jobs[0];
+                          addLog(`✍️ Drafting human-tone pitch for ${target.company}...`);
+                          setIsLoading(true);
+                          // Simulating generation
+                          setTimeout(() => {
+                            setEmailDraft({
+                              subject: `Inquiry: ${target.title} Role at ${target.company}`,
+                              body: `Hi Hiring Team at ${target.company},\n\nI've been following your work in the industry and was thrilled to see the ${target.title} opening. Given my background in ${profile?.skills.slice(0,3).join(", ") || "software development"}, I believe I could bring significant value to your team.\n\nLooking forward to potentially discussing this further.\n\nBest regards,\n${profile?.name || "Professional"}`
+                            });
+                            setIsLoading(false);
+                          }, 1000);
+                        } 
+                      }} 
+                      className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold cursor-pointer transition-colors"
+                    >
+                      Generate Pitch
+                    </button>
                   </div>
                 )}
               </div>

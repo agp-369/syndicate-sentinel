@@ -45,7 +45,8 @@ export class SentinelWatchdog {
           const analysis = await runForensicAudit(url);
           
           // Write the Proof back to Notion and set status to AWAITING_REVIEW
-          await mcp.logForensicAudit(jobsDataSourceId, analysis, url);
+          // Pass page.id to update the existing entry instead of creating a new one
+          await mcp.logForensicAudit(jobsDataSourceId, analysis, url, page.id);
           
           results.push({ id: page.id, company: analysis.jobDetails.company, status: "forensics_complete" });
           count++;

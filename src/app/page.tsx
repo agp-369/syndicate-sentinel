@@ -391,29 +391,16 @@ export function AgentOSContent() {
         })
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        if (text.includes("An error occurred") || res.status === 504) {
-          throw new Error("Server timeout or error. Please try manual page selection below.");
-        }
-        throw new Error(`Server returned ${res.status}`);
-      }
-
       const data = await res.json();
       
       if (data.success) {
         setProfile(data.profile);
+        setJobs(data.jobs || []);
+        setSkillGaps(data.skills || []);
         setSetupComplete(true);
         setInfraCreated(true);
         if (data.infrastructure?.careerPageId) setCareerPageId(data.infrastructure.careerPageId);
         addLog(`✅ Forensic Career OS Ready!`);
-        addLog(`📊 ${data.jobs?.length || 0} jobs analyzed`);
-        addLog(`🧬 ${data.skills?.length || 0} skills DNA mapped`);
-        addLog(`🔍 ${data.profile.skills?.length || 0} skills extracted from Notion`);
-        
-        if (data.jobs) setJobs(data.jobs);
-        if (data.skills) setSkillGaps(data.skills);
-        if (data.forensicReports) setForensicReports(data.forensicReports);
         setActiveTab("overview");
       } else {
         addLog(`❌ ${data.error}`);
@@ -435,35 +422,22 @@ export function AgentOSContent() {
     addLog(`📁 Selected ${selectedPages.length} pages, creating Career OS...`);
 
     try {
-      // Save selected pages to cookie
-      await fetch("/api/notion/pages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageIds: selectedPages })
-      });
-
-      // Now call agent setup with selected pages
       const res = await fetch("/api/career", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "SETUP", selectedPages })
       });
 
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
       
       if (data.success) {
         setProfile(data.profile);
+        setJobs(data.jobs || []);
+        setSkillGaps(data.skills || []);
         setSetupComplete(true);
         setInfraCreated(true);
         if (data.infrastructure?.careerPageId) setCareerPageId(data.infrastructure.careerPageId);
         addLog(`✅ Forensic Career OS Ready!`);
-        addLog(`📊 ${data.jobs?.length || 0} jobs analyzed`);
-        addLog(`🧬 ${data.skills?.length || 0} skills DNA mapped`);
-        
-        if (data.jobs) setJobs(data.jobs);
-        if (data.skills) setSkillGaps(data.skills);
-        if (data.forensicReports) setForensicReports(data.forensicReports);
         setActiveTab("overview");
       } else {
         addLog(`❌ ${data.error}`);

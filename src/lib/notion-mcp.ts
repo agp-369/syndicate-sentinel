@@ -93,18 +93,21 @@ export class NotionMCPClient {
 
       for (const db of (result?.results ?? []) as any[]) {
         const title = (db.title?.[0]?.plain_text || db.name || "").toLowerCase();
-        if (title.includes("job tracker") || title.includes("career ledger")) setup.jobsDataSourceId = db.id;
-        else if (title.includes("skill dna") || title.includes("talent pool")) setup.skillsDataSourceId = db.id;
+        if (title.includes("job") || title.includes("tracker") || title.includes("ledger")) {
+          setup.jobsDataSourceId = db.id;
+        }
+        if (title.includes("skill") || title.includes("dna") || title.includes("talent")) {
+          setup.skillsDataSourceId = db.id;
+        }
       }
 
       const pageRes = await this.gateway.callTool("notion-search", {
-        query: "Forensic Career OS",
         filter: { property: "object", value: "page" }
       });
       
       for (const page of (pageRes?.results ?? []) as any[]) {
         const title = (page.properties?.title?.title?.[0]?.plain_text || "").toLowerCase();
-        if (title.includes("forensic career os")) {
+        if (title.includes("career") || title.includes("os") || title.includes("dashboard") || title.includes("lumina")) {
           setup.careerPageId = page.id;
           break;
         }

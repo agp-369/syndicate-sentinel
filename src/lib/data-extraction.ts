@@ -88,9 +88,32 @@ export interface MCPOperation {
 
 export class MCPOperationTracker {
   private operations: MCPOperation[] = [];
-  add(op: MCPOperation) { this.operations.push(op); }
-  getOperations() { return this.operations; }
-  clear() { this.operations = []; }
+  private listeners: ((ops: MCPOperation[]) => void)[] = [];
+
+  add(op: MCPOperation) { 
+    this.operations.push(op); 
+    this.notify();
+  }
+
+  getOperations() { return [...this.operations]; }
+
+  subscribe(listener: (ops: MCPOperation[]) => void) {
+    this.listeners.push(listener);
+    listener([...this.operations]);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
+  private notify() {
+    const ops = this.getOperations();
+    this.listeners.forEach(l => l(ops));
+  }
+
+  clear() { 
+    this.operations = []; 
+    this.notify();
+  }
 }
 
 export const mcpTracker = new MCPOperationTracker();

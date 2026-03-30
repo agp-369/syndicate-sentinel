@@ -204,6 +204,10 @@ export class NotionMCPClient {
     return null;
   }
 
+  async queryDataSource(dataSourceId: string, pageSize: number = 50, onLog?: (tx: MCPTransaction) => void) {
+    return this.gateway.callTool("notion_query_database", { database_id: dataSourceId, page_size: pageSize }, onLog, ["Fetching items from Notion database..."]);
+  }
+
   async logForensicAudit(jobsDbId: string, analysis: ForensicReport, url: string, updatePageId?: string, onLog?: (tx: MCPTransaction) => void) {
     try {
       if (updatePageId) {

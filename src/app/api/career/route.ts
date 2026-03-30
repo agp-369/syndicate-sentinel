@@ -63,6 +63,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (mode === "GENERATE_JOBS") {
+      const body = await req.json();
+      const count = body.count || 8;
+      const profile = await mcp.discoverAndReadProfile();
+      const jobs = await jobEngine.generateRecommendations(profile, count);
+      const gaps = await jobEngine.analyzeSkillGaps(profile);
+      return NextResponse.json({ success: true, jobs, gaps });
+    }
+
+    if (mode === "ANALYZE_SKILLS") {
+      const profile = await mcp.discoverAndReadProfile();
+      const gaps = await jobEngine.analyzeSkillGaps(profile);
+      return NextResponse.json({ success: true, gaps });
+    }
+
     return NextResponse.json({ success: false, error: "Mode mismatch" }, { status: 400 });
   } catch (err: any) {
     console.error("[CAREER_API] Error:", err);

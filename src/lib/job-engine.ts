@@ -7,14 +7,14 @@
  * - Career trajectory
  * - Location preferences
  * - Salary expectations
+ * 
+ * Uses Groq (primary) or Gemini (fallback) via unified AIEngine
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import { AIEngine } from "./ai";
 import type { UserProfile } from "./notion-mcp";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export interface MatchedJob {
   title: string;
@@ -40,8 +40,6 @@ export interface TrendingSkill {
 }
 
 export class JobRecommendationEngine {
-  private model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
   /**
    * Analyze user profile and find skill gaps
    */
@@ -54,13 +52,13 @@ export class JobRecommendationEngine {
 You are a career intelligence AI analyzing a professional's skill profile.
 
 USER PROFILE:
-- Skills: ${skills.join(", ")}
+- Skills: ${skills.join(", ") || "Not specified"}
 - Headline: ${profile.headline || "Not specified"}
 - Experience: ${experience.map(e => `${e.role} at ${e.company}`).join(", ") || "Not specified"}
 - Goals: ${goals.join(", ") || "Not specified"}
 
 TRENDING TECH SKILLS FOR 2026:
-Research and identify the most in-demand skills for tech professionals.
+Identify the most in-demand skills for tech professionals.
 
 For each trending skill, provide:
 1. Skill name
@@ -92,12 +90,9 @@ Focus on skills that:
 `;
 
     try {
-      const result = await this.model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const text = result.response.text().trim();
-      return JSON.parse(text);
+      const text = await AIEngine.generateContent(prompt);
+      const result = AIEngine.parseJSON(text);
+      return Array.isArray(result) ? result : [];
     } catch (error) {
       console.error("Error analyzing skill gaps:", error);
       return [];
@@ -120,7 +115,7 @@ USER PROFILE:
 - Name: ${profile.name || "Professional"}
 - Headline: ${profile.headline || "Software Developer"}
 - Summary: ${profile.summary || ""}
-- Skills: ${skills.join(", ")}
+- Skills: ${skills.join(", ") || "Not specified"}
 - Experience: ${experience.map(e => `${e.role} at ${e.company} (${e.duration || ""})`).join("; ") || "Entry to mid level"}
 - Education: ${education.map(e => `${e.degree} at ${e.institution}`).join("; ") || "Not specified"}
 - Goals: ${goals.join(", ") || "Career growth"}
@@ -165,12 +160,9 @@ IMPORTANT:
 `;
 
     try {
-      const result = await this.model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const text = result.response.text().trim();
-      return JSON.parse(text);
+      const text = await AIEngine.generateContent(prompt);
+      const result = AIEngine.parseJSON(text);
+      return Array.isArray(result) ? result : [];
     } catch (error) {
       console.error("Error generating recommendations:", error);
       return [];
@@ -236,12 +228,8 @@ The roadmap should be REALISTIC and ACTIONABLE.
 `;
 
     try {
-      const result = await this.model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const text = result.response.text().trim();
-      return JSON.parse(text);
+      const text = await AIEngine.generateContent(prompt);
+      return AIEngine.parseJSON(text);
     } catch (error) {
       console.error("Error generating roadmap:", error);
       return {
@@ -304,9 +292,8 @@ IMPORTANT: This email goes through Human-in-the-Loop review before sending.
 `;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
-      return JSON.parse(text);
+      const text = await AIEngine.generateContent(prompt);
+      return AIEngine.parseJSON(text);
     } catch (error) {
       console.error("Error generating email:", error);
       return {
@@ -409,12 +396,8 @@ Be THOROUGH but FAIR. Good jobs can have minor issues.
 `;
 
     try {
-      const result = await this.model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      });
-      const text = result.response.text().trim();
-      return JSON.parse(text);
+      const text = await AIEngine.generateContent(prompt);
+      return AIEngine.parseJSON(text);
     } catch (error) {
       console.error("Error in forensic analysis:", error);
       return {

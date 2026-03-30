@@ -188,8 +188,18 @@ export class NotionMCPClient {
     return null;
   }
 
-  async logForensicAudit(jobsDbId: string, analysis: any, url: string, onLog?: (tx: MCPTransaction) => void) {
+  async logForensicAudit(jobsDbId: string, analysis: ForensicReport, url: string, updatePageId?: string, onLog?: (tx: MCPTransaction) => void) {
     try {
+      if (updatePageId) {
+        return await this.gateway.callTool("notion-update-page", {
+          page_id: updatePageId,
+          properties: {
+            "Status": { select: { name: "🟡 REVIEW" } },
+            "Trust Score": { number: (analysis.score || 50) / 100 }
+          }
+        }, onLog, ["Updating existing job entry with forensic proof..."]);
+      }
+
       return await this.gateway.callTool("notion-create-pages", {
         parent: { database_id: jobsDbId },
         properties: {
@@ -207,4 +217,6 @@ export class NotionMCPClient {
       await this.gateway.close();
     }
   }
+
+  getTransactions(): MCPTransaction[] { return this.gateway.getTransactions(); }
 }

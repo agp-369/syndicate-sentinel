@@ -199,25 +199,29 @@ export class NotionMCPClient {
       // Extraction via LLM with aggregated text
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const prompt = `
-        You are 'Lumina', a Career Intelligence AI. 
-        Extract a COMPREHENSIVE career profile from the following Notion workspace data.
-        AGGREGATE information from all pages provided. 
-        If information conflicts, use the most recent or detailed one.
+        You are 'Lumina', an Expert Forensic Career Profiler. 
+        TASK: Extract EVERY SINGLE DETAIL from this professional data.
+        
+        MANDATES:
+        1. SKILLS: Do not just list a few. Extract every technology, methodology, and soft skill mentioned. Target 20+ skills.
+        2. EXPERIENCE: Summarize roles deeply. Look for company names and roles in every line.
+        3. ACCURACY: If a name is missing, use "Notion Professional". If roles are missing, infer from skills.
+        4. STRUCTURE: Return VALID JSON only.
 
-        WORKSPACE DATA:
-        ${combinedText.substring(0, 15000)}
+        NOTION DATA:
+        ${combinedText.substring(0, 18000)}
 
-        OUTPUT STRICT JSON:
+        OUTPUT FORMAT:
         {
-          "name": "Full Name",
-          "headline": "Professional Title",
-          "summary": "3-sentence professional summary",
-          "skills": ["List at least 15 technical skills"],
+          "name": "...",
+          "headline": "Full professional headline",
+          "summary": "Detailed 2-paragraph professional summary",
+          "skills": ["Skill 1", "Skill 2", ...],
           "yearsOfExperience": number,
-          "currentRole": "Current Title",
-          "currentCompany": "Current Company",
+          "currentRole": "...",
+          "currentCompany": "...",
           "experience": [{"role": "...", "company": "...", "duration": "..."}],
-          "goals": ["List 3 career goals based on their trajectory"]
+          "goals": ["Goal 1", "Goal 2", "Goal 3"]
         }
       `;
 

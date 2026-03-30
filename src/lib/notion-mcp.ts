@@ -6,7 +6,6 @@ export type { MCPTransaction };
 
 export interface UserProfile {
   name: string;
-  email: string;
   headline: string;
   summary: string;
   skills: string[];
@@ -14,10 +13,9 @@ export interface UserProfile {
   yearsOfExperience: number;
   currentRole: string;
   currentCompany: string;
-  experience: { role: string; company: string; duration: string }[];
-  education: { institution?: string; degree?: string; field?: string; year?: string }[];
+  experience: { role: string; company: string; duration: string; details?: string }[];
+  education: { institution: string; degree: string; year?: string }[];
   goals: string[];
-  preferences: any;
 }
 
 export interface WorkspaceSetup {
@@ -26,22 +24,10 @@ export interface WorkspaceSetup {
   careerPageId?: string;
 }
 
-export interface ForensicReport {
-  verdict: "🟢 LEGITIMATE" | "🔴 SCAM RISK" | "🟡 GHOST JOB" | "⚪ INCONCLUSIVE";
-  score: number;
-  analysis: {
-    flags: string[];
-    hiddenSignals: string[];
-    cultureMatch: string;
-    cyberMetadata?: any;
-  };
-  jobDetails: {
-    title: string;
-    company: string;
-    summary: string;
-  };
-}
-
+/**
+ * 🛰️ NotionMCPClient v8.0 - GRAPH-AWARE INTELLIGENCE
+ * High-fidelity data access, recursive graph traversal, and semantic understanding.
+ */
 export class NotionMCPClient {
   public gateway: NotionMCPGateway;
 
@@ -50,85 +36,144 @@ export class NotionMCPClient {
   }
 
   /**
-   * DEEP READ - Exhaustive recursive content fetcher
+   * GRAPH TRAVERSAL: Recursively reads everything accessible
    */
-  async deepReadBlock(blockId: string, depth = 0): Promise<string> {
-    if (depth > 5) return ""; 
-    let text = "";
+  async deepReadBlock(id: string, depth = 0): Promise<string> {
+    if (depth > 5) return "";
+    let accumulatedText = "";
+
     try {
-      // Get block info to check if it's a database
-      const blockInfo = await this.gateway.callTool("notion-get-page", { page_id: blockId }).catch(() => null);
-      
-      if (blockInfo?.object === "database") {
-        const items = await this.gateway.callTool("notion-query-data-sources", { database_id: blockId });
-        for (const page of (items?.results || [])) {
-          text += await this.deepReadBlock(page.id, depth + 1) + "\n";
+      // 1. Identify the object type
+      const info = await this.gateway.callTool("notion-get-page", { page_id: id }).catch(async () => {
+        // Fallback: Check if it's a database
+        const dbRes = await fetch(`https://api.notion.com/v1/databases/${id}`, {
+          headers: { "Authorization": `Bearer ${(this.gateway as any).token}`, "Notion-Version": "2022-06-28" }
+        });
+        return await dbRes.json();
+      });
+
+      if (!info || info.object === "error") return "";
+
+      // 2. If it's a database, query all its rows
+      if (info.object === "database") {
+        accumulatedText += `[DATABASE: ${info.title?.[0]?.plain_text || "Untitled"}]\n`;
+        const rows = await this.gateway.callTool("notion-query-data-sources", { database_id: id });
+        for (const page of (rows?.results || [])) {
+          accumulatedText += await this.deepReadBlock(page.id, depth + 1);
         }
-        return text;
+        return accumulatedText;
       }
 
-      // Read children
-      const result = await this.gateway.callTool("notion-fetch", { block_id: blockId });
-      const blocks = (result as any)?.results || [];
-      for (const block of blocks) {
+      // 3. Read blocks of the page
+      const children = await this.gateway.callTool("notion-fetch", { block_id: id });
+      for (const block of (children?.results || [])) {
         const type = block.type;
-        const content = block[type];
-        if (content?.rich_text) {
-          text += content.rich_text.map((t: any) => t.plain_text).join("") + "\n";
+        
+        // Handle nested content
+        if (block[type]?.rich_text) {
+          accumulatedText += block[type].rich_text.map((t: any) => t.plain_text).join("") + "\n";
         }
-        if (block.has_children) {
-          text += await this.deepReadBlock(block.id, depth + 1);
+
+        // Recursive dive into child pages or nested blocks
+        if (type === "child_page") {
+          accumulatedText += await this.deepReadBlock(block.id, depth + 1);
+        } else if (block.has_children) {
+          accumulatedText += await this.deepReadBlock(block.id, depth + 1);
         }
       }
-    } catch (e) {}
-    return text;
+    } catch (e) {
+      console.error(`[GRAPH] Error reading ${id}:`, e);
+    }
+
+    return accumulatedText;
   }
 
+  /**
+   * DISCOVER: Locate the Career OS footprint
+   */
   async searchDatabases(onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
     const setup: WorkspaceSetup = {};
     try {
-      const result = await this.gateway.callTool("notion-search", {
-        filter: { property: "object", value: "database" }
-      }, onLog);
-
-      for (const db of (result?.results ?? []) as any[]) {
+      const dbs = await this.gateway.callTool("notion-search", { filter: { property: "object", value: "database" } }, onLog);
+      for (const db of (dbs?.results || [])) {
         const title = (db.title?.[0]?.plain_text || db.name || "").toLowerCase();
         if (title.includes("job") || title.includes("tracker")) setup.jobsDataSourceId = db.id;
         if (title.includes("skill") || title.includes("dna")) setup.skillsDataSourceId = db.id;
       }
 
-      const pageRes = await this.gateway.callTool("notion-search", { filter: { property: "object", value: "page" } });
-      for (const page of (pageRes?.results ?? []) as any[]) {
-        const title = (page.properties?.title?.title?.[0]?.plain_text || "").toLowerCase();
-        if (title.includes("career") || title.includes("lumina")) {
-          setup.careerPageId = page.id;
+      const pages = await this.gateway.callTool("notion-search", { filter: { property: "object", value: "page" } });
+      for (const p of (pages?.results || [])) {
+        const title = (p.properties?.title?.title?.[0]?.plain_text || "").toLowerCase();
+        if (title.includes("career") || title.includes("forensic")) {
+          setup.careerPageId = p.id;
           break;
         }
       }
-    } catch (e: any) {}
+    } catch (e) {}
     return setup;
   }
 
-  async saveProfile(parentPageId: string, profile: UserProfile, onLog?: (tx: MCPTransaction) => void) {
+  /**
+   * PROVISION: Create dedicated structure
+   */
+  async initializeWorkspace(parentPageId?: string, onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
+    const existing = await this.searchDatabases(onLog);
+    const stamp = new Date().toLocaleDateString();
+
     try {
-      await this.gateway.callTool("notion-create-pages", {
-        parent: { type: "page_id", page_id: parentPageId },
-        properties: { title: [{ type: "text", text: { content: `👤 Profile: ${profile.name || "Professional"}` } }] },
-        children: [
-          { object: "block", type: "heading_1", heading_1: { rich_text: [{ text: { content: "Career Intelligence DNA" } }] } },
-          { object: "block", type: "callout", callout: { rich_text: [{ text: { content: profile.summary } }], icon: { type: "emoji", emoji: "🧠" }, color: "blue_background" } },
-          { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Extracted Skills" } }] } },
-          { object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ text: { content: profile.skills.join(", ") } }] } }
-        ]
-      }, onLog);
+      let careerId = existing.careerPageId;
+      if (!careerId) {
+        const parent = parentPageId || (await this.gateway.callTool("notion-search", { filter: { property: "object", value: "page" } }))?.results?.[0]?.id;
+        if (parent) {
+          const res = await this.gateway.callTool("notion-create-pages", {
+            parent: { type: "page_id", page_id: parent },
+            properties: { title: [{ type: "text", text: { content: "🏛️ Forensic Career OS" } }] },
+            children: [
+              { object: "block", type: "heading_1", heading_1: { rich_text: [{ text: { content: "Autonomous Career Ledger" } }] } },
+              { object: "block", type: "callout", callout: { rich_text: [{ text: { content: "Built by Lumina Forensic Agent." } }], icon: { type: "emoji", emoji: "🛡️" } } }
+            ]
+          }, onLog);
+          careerId = res?.id;
+          existing.careerPageId = careerId;
+        }
+      }
+
+      if (careerId) {
+        if (!existing.jobsDataSourceId) {
+          const db = await this.gateway.callTool("notion-create-database", {
+            parent: { type: "page_id", page_id: careerId },
+            title: [{ type: "text", text: { content: `🎯 Job Tracker` } }],
+            properties: {
+              "Job Title": { title: {} },
+              "Company": { rich_text: {} },
+              "Status": { select: { options: [{ name: "🔍 Researching", color: "yellow" }, { name: "✅ Verified", color: "green" }] } },
+              "Job URL": { url: {} },
+              "Match Score": { number: { format: "percent" } }
+            }
+          }, onLog);
+          existing.jobsDataSourceId = db?.id;
+        }
+        if (!existing.skillsDataSourceId) {
+          const db = await this.gateway.callTool("notion-create-database", {
+            parent: { type: "page_id", page_id: careerId },
+            title: [{ type: "text", text: { content: `🧬 Skills DNA` } }],
+            properties: {
+              "Skill Name": { title: {} },
+              "Proficiency": { select: { options: [{ name: "Expert", color: "green" }, { name: "Intermediate", color: "blue" }, { name: "Beginner", color: "orange" }] } }
+            }
+          }, onLog);
+          existing.skillsDataSourceId = db?.id;
+        }
+      }
     } catch (e) {}
+    return existing;
   }
 
-  async discoverAndReadProfile(pageIds: string[] = [], onLog?: (tx: MCPTransaction) => void): Promise<UserProfile> {
+  async discoverAndReadProfile(pageIds: string[] = []): Promise<UserProfile> {
     const profile: UserProfile = {
-      name: "", email: "", headline: "", summary: "", skills: [], techStack: [],
+      name: "", headline: "", summary: "", skills: [], techStack: [],
       yearsOfExperience: 0, currentRole: "", currentCompany: "", experience: [],
-      education: [], goals: [], preferences: {},
+      education: [], goals: [],
     };
 
     try {
@@ -137,109 +182,69 @@ export class NotionMCPClient {
         const res = await this.gateway.callTool("notion-search", { filter: { property: "object", value: "page" } });
         targets = res?.results?.slice(0, 5).map((r: any) => r.id) || [];
       }
-      
-      const contents = await Promise.all(targets.map(id => this.deepReadBlock(id)));
-      const combinedText = contents.join("\n\n---\n\n");
 
-      if (!combinedText.trim()) return profile;
+      const allTexts = await Promise.all(targets.map(id => this.deepReadBlock(id)));
+      const corpus = allTexts.join("\n\n--- SOURCE BOUNDARY ---\n\n");
+
+      if (!corpus.trim()) return profile;
 
       const prompt = `
-        TASK: Extract detailed career profile from this text.
-        DATA: ${combinedText.substring(0, 20000)}
-        FORMAT: JSON ONLY.
-        FIELDS: { name, headline, summary, skills (min 20), yearsOfExperience, currentRole, currentCompany, goals }
+        MANDATE: Extract Career DNA from this graph-dump of a Notion workspace.
+        CORPUS:
+        ${corpus.substring(0, 30000)}
+
+        RETURN JSON:
+        {
+          "name": "Full Name",
+          "headline": "Expert Title",
+          "summary": "Detailed professional bio",
+          "skills": ["List 20+ specific technologies found"],
+          "yearsOfExperience": number,
+          "currentRole": "Title",
+          "currentCompany": "Company",
+          "experience": [{"role": "...", "company": "...", "duration": "...", "details": "..."}],
+          "education": [{"institution": "...", "degree": "..."}],
+          "goals": ["Goal 1", "Goal 2", "Goal 3"]
+        }
       `;
 
       const aiRes = await AIEngine.generateContent(prompt);
-      const extracted = AIEngine.parseJSON(aiRes);
-      Object.assign(profile, extracted);
-      profile.techStack = profile.skills.slice(0, 10);
-
-    } catch (e: any) { console.error("[BACKEND] Profile Extraction Failed:", e.message); }
+      const data = AIEngine.parseJSON(aiRes);
+      Object.assign(profile, data);
+      profile.techStack = profile.skills.slice(0, 15);
+    } catch (e) {}
     return profile;
   }
 
-  async initializeWorkspace(parentPageId?: string, onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
-    const existing = await this.searchDatabases(onLog);
-    const creationStamp = new Date().toLocaleDateString();
-
+  async saveProfile(parentId: string, profile: UserProfile) {
     try {
-      let careerPageId = existing.careerPageId;
-      if (!careerPageId) {
-        const parent = parentPageId || (await this.gateway.callTool("notion-search", { filter: { property: "object", value: "page" } }))?.results?.[0]?.id;
-        if (parent) {
-          const newPage = await this.gateway.callTool("notion-create-pages", {
-            parent: { type: "page_id", page_id: parent },
-            properties: { title: [{ type: "text", text: { content: "🏛️ Forensic Career OS" } }] },
-            children: [{ object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: "Your autonomous career tracking layer." } }] } }]
-          }, onLog);
-          careerPageId = newPage?.id;
-          existing.careerPageId = careerPageId;
-        }
-      }
-
-      if (careerPageId) {
-        if (!existing.jobsDataSourceId) {
-          const db = await this.gateway.callTool("notion-create-database", {
-            parent: { type: "page_id", page_id: careerPageId },
-            title: [{ type: "text", text: { content: `🎯 Job Tracker (${creationStamp})` } }],
-            properties: { "Job Title": { title: {} }, "Status": { select: { options: [{ name: "🔍 Researching", color: "yellow" }, { name: "✅ Verified", color: "green" }] } }, "Company": { rich_text: {} }, "Job URL": { url: {} }, "Match Score": { number: { format: "percent" } } }
-          }, onLog);
-          existing.jobsDataSourceId = db?.id;
-        }
-        if (!existing.skillsDataSourceId) {
-          const db = await this.gateway.callTool("notion-create-database", {
-            parent: { type: "page_id", page_id: careerPageId },
-            title: [{ type: "text", text: { content: `🧬 Skills DNA (${creationStamp})` } }],
-            properties: { "Skill Name": { title: {} }, "Proficiency": { select: { options: [{ name: "Expert", color: "green" }, { name: "Beginner", color: "red" }] } } }
-          }, onLog);
-          existing.skillsDataSourceId = db?.id;
-        }
-      }
-    } catch (e: any) {}
-    return existing;
+      await this.gateway.callTool("notion-create-pages", {
+        parent: { type: "page_id", page_id: parentId },
+        properties: { title: [{ type: "text", text: { content: `👤 DNA: ${profile.name}` } }] },
+        children: [
+          { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Professional Summary" } }] } },
+          { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: profile.summary } }] } },
+          { object: "block", type: "heading_3", heading_3: { rich_text: [{ text: { content: "Core Experience" } }] } },
+          ...profile.experience.map(exp => ({
+            object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ text: { content: `${exp.role} at ${exp.company} (${exp.duration})` } }] }
+          }))
+        ]
+      });
+    } catch (e) {}
   }
 
-  async queryDataSource(dataSourceId: string, pageSize: number = 50) {
-    return this.gateway.callTool("notion-query-data-sources", { database_id: dataSourceId, page_size: pageSize });
-  }
-
-  async logForensicAudit(dataSourceId: string, analysis: ForensicReport, url: string, existingPageId?: string, onLog?: (tx: MCPTransaction) => void): Promise<string> {
-    try {
-      const properties: any = {
-        "Job Title": { title: [{ text: { content: analysis.jobDetails.title } }] },
-        "Status": { select: { name: "🟡 AWAITING_REVIEW" } },
-        "Company": { rich_text: [{ text: { content: analysis.jobDetails.company } }] },
-        "Job URL": { url: url },
-        "Match Score": { number: analysis.score / 100 }
-      };
-
-      if (existingPageId) {
-        await this.gateway.callTool("notion-update-page", { page_id: existingPageId, properties }, onLog);
-        await this.gateway.callTool("notion-append-blocks", {
-          block_id: existingPageId,
-          children: [
-            { object: "block", type: "callout", callout: { rich_text: [{ text: { content: `🚨 FORENSIC VERDICT: ${analysis.verdict}` } }], icon: { type: "emoji", emoji: "🛡️" }, color: "red_background" } },
-            { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: analysis.jobDetails.summary } }] } }
-          ]
-        }, onLog);
-        return existingPageId;
-      } else {
-        const result = await this.gateway.callTool("notion-create-pages", {
-          parent: { database_id: dataSourceId },
-          properties,
-          children: [
-            { object: "block", type: "callout", callout: { rich_text: [{ text: { content: `🚨 FORENSIC VERDICT: ${analysis.verdict}` } }], icon: { type: "emoji", emoji: "🛡️" }, color: "red_background" } },
-            { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: analysis.jobDetails.summary } }] } }
-          ]
-        }, onLog);
-        return result?.id || "";
-      }
-    } catch (e: any) {
-      console.error("[BACKEND] Forensic log failed.", e.message);
-      return "";
+  async saveSkillGaps(dbId: string, skills: any[]) {
+    for (const s of skills.slice(0, 10)) {
+      await this.gateway.callTool("notion-create-pages", {
+        parent: { database_id: dbId },
+        properties: {
+          "Skill Name": { title: [{ text: { content: s.skill || s } }] },
+          "Proficiency": { select: { name: "Intermediate" } }
+        }
+      }).catch(() => {});
     }
   }
 
-  getTransactions(): MCPTransaction[] { return this.gateway.getTransactions(); }
+  async queryDataSource(id: string) { return this.gateway.callTool("notion-query-data-sources", { database_id: id }); }
+  getTransactions() { return this.gateway.getTransactions(); }
 }

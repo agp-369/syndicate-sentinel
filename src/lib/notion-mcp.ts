@@ -48,8 +48,8 @@ export interface WorkspaceSetup {
 }
 
 /**
- * 🛰️ NotionMCPClient v6.0 - CORE BACKEND ENGINE
- * Fixed: Robust Data Extraction, Infrastructure Persistence, Recursive Reading, Data Saving
+ * 🛰️ NotionMCPClient v7.0 - ULTIMATE EXTRACTION & PERSISTENCE
+ * Fixed: Multi-page extraction, Auto-parent discovery, Deep recursive reading.
  */
 export class NotionMCPClient {
   public gateway: NotionMCPGateway;
@@ -62,7 +62,7 @@ export class NotionMCPClient {
    * RECURSIVELY fetch all text content from blocks.
    */
   async deepReadBlock(blockId: string, depth = 0): Promise<string> {
-    if (depth > 2) return "";
+    if (depth > 3) return ""; // Increased depth for complex pages
     let text = "";
     try {
       const result = await this.gateway.callTool("notion-fetch", { block_id: blockId });
@@ -82,7 +82,7 @@ export class NotionMCPClient {
   }
 
   /**
-   * RECOVER existing infrastructure to prevent duplicates.
+   * RECOVER existing infrastructure using fuzzy matching.
    */
   async searchDatabases(onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
     const setup: WorkspaceSetup = {};
@@ -112,28 +112,32 @@ export class NotionMCPClient {
           break;
         }
       }
-
     } catch (e: any) { console.error("[BACKEND] Discovery failed.", e.message); }
     return setup;
   }
 
   /**
-   * saveProfile - Persist user profile to a Notion page
+   * saveProfile - Persist user profile to a Notion page with enhanced layout
    */
   async saveProfile(parentPageId: string, profile: UserProfile, onLog?: (tx: MCPTransaction) => void): Promise<string> {
     try {
+      console.log(`[BACKEND] Saving Profile for ${profile.name} under ${parentPageId}`);
       const res = await this.gateway.callTool("notion-create-pages", {
         parent: { type: "page_id", page_id: parentPageId },
         properties: {
           title: [{ type: "text", text: { content: `👤 Profile: ${profile.name || "Professional"}` } }]
         },
         children: [
-          { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Career DNA Summary" } }] } },
-          { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: `Headline: ${profile.headline || "N/A"}` } }] } },
-          { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: `Current Role: ${profile.currentRole || "N/A"}` } }] } },
-          { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: `Experience: ${profile.yearsOfExperience || 0} years` } }] } },
-          { object: "block", type: "heading_3", heading_3: { rich_text: [{ text: { content: "Core Skills" } }] } },
-          { object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ text: { content: profile.skills.length > 0 ? profile.skills.join(", ") : "Not detected yet." } }] } }
+          { object: "block", type: "heading_1", heading_1: { rich_text: [{ text: { content: "Career Intelligence DNA" } }] } },
+          { object: "block", type: "callout", callout: { rich_text: [{ text: { content: profile.summary || "No summary extracted." } }], icon: { type: "emoji", emoji: "🧠" }, color: "blue_background" } },
+          { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Current Status" } }] } },
+          { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: `Role: ${profile.currentRole}\nCompany: ${profile.currentCompany}\nExperience: ${profile.yearsOfExperience} Years` } }] } },
+          { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Extracted Skills" } }] } },
+          { object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ text: { content: profile.skills.join(", ") } }] } },
+          { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Career Goals" } }] } },
+          ...profile.goals.map(goal => ({
+            object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: [{ text: { content: goal } }] }
+          }))
         ]
       }, onLog);
       return res?.id || "";
@@ -147,7 +151,7 @@ export class NotionMCPClient {
    * saveSkillGaps - Save skill analysis to the DNA database
    */
   async saveSkillGaps(databaseId: string, skills: any[], onLog?: (tx: MCPTransaction) => void) {
-    for (const skill of skills.slice(0, 5)) {
+    for (const skill of skills.slice(0, 10)) {
       try {
         await this.gateway.callTool("notion-create-pages", {
           parent: { database_id: databaseId },
@@ -164,7 +168,7 @@ export class NotionMCPClient {
   }
 
   /**
-   * discoverAndReadProfile - Extract and persist profile data
+   * discoverAndReadProfile - READS ALL SELECTED PAGES and aggregates data
    */
   async discoverAndReadProfile(pageIds: string[] = [], onLog?: (tx: MCPTransaction) => void): Promise<UserProfile> {
     const profile: UserProfile = {
@@ -174,61 +178,95 @@ export class NotionMCPClient {
     };
 
     try {
-      let targetId = pageIds && pageIds.length > 0 ? pageIds[0] : null;
+      let targets = pageIds;
       
-      if (!targetId) {
+      // If no page provided, search for everything
+      if (targets.length === 0) {
         const searchRes = await this.gateway.callTool("notion-search", {
-          query: "Profile",
           filter: { property: "object", value: "page" }
         }, onLog);
-        if ((searchRes as any)?.results?.[0]) targetId = (searchRes as any).results[0].id;
+        targets = (searchRes as any)?.results?.slice(0, 3).map((r: any) => r.id) || [];
       }
       
-      if (!targetId) return profile;
+      if (targets.length === 0) return profile;
 
-      const text = await this.deepReadBlock(targetId);
-      if (!text.trim()) return profile;
+      // Read ALL pages in parallel
+      const contents = await Promise.all(targets.map(id => this.deepReadBlock(id)));
+      const combinedText = contents.join("\n\n--- NEXT PAGE ---\n\n");
 
-      const { profile: strictProfile } = StrictDataExtractor.extractProfile(text, "notion", "workspace");
-      Object.assign(profile, strictProfile);
+      if (!combinedText.trim()) return profile;
 
-      if (profile.skills.length === 0 && text.trim()) {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const prompt = `Extract career data from text. DO NOT INVENT. Return JSON: { "name": "", "skills": [], "yearsOfExperience": 0, "currentRole": "", "headline": "" }. Text: ${text.substring(0, 4000)}`;
-        const aiRes = await model.generateContent(prompt);
-        let responseText = aiRes.response.text().trim();
-        responseText = responseText.replace(/^```(json)?/i, "").replace(/```$/i, "").trim();
-        try {
-          const extracted = JSON.parse(responseText);
-          profile.name = profile.name || extracted.name || "";
-          profile.skills = profile.skills.length > 0 ? profile.skills : (extracted.skills || []);
-          profile.yearsOfExperience = profile.yearsOfExperience || extracted.yearsOfExperience || 0;
-          profile.currentRole = profile.currentRole || extracted.currentRole || "";
-          profile.headline = profile.headline || extracted.headline || "";
-        } catch (e) {}
+      // Extraction via LLM with aggregated text
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const prompt = `
+        You are 'Lumina', a Career Intelligence AI. 
+        Extract a COMPREHENSIVE career profile from the following Notion workspace data.
+        AGGREGATE information from all pages provided. 
+        If information conflicts, use the most recent or detailed one.
+
+        WORKSPACE DATA:
+        ${combinedText.substring(0, 15000)}
+
+        OUTPUT STRICT JSON:
+        {
+          "name": "Full Name",
+          "headline": "Professional Title",
+          "summary": "3-sentence professional summary",
+          "skills": ["List at least 15 technical skills"],
+          "yearsOfExperience": number,
+          "currentRole": "Current Title",
+          "currentCompany": "Current Company",
+          "experience": [{"role": "...", "company": "...", "duration": "..."}],
+          "goals": ["List 3 career goals based on their trajectory"]
+        }
+      `;
+
+      const aiRes = await model.generateContent(prompt);
+      let responseText = aiRes.response.text().trim();
+      responseText = responseText.replace(/^```(json)?/i, "").replace(/```$/i, "").trim();
+      
+      try {
+        const extracted = JSON.parse(responseText);
+        Object.assign(profile, extracted);
+        profile.techStack = profile.skills.slice(0, 10);
+      } catch (e) {
+        // Fallback to strict extractor if AI fails
+        const { profile: fallbackProfile } = StrictDataExtractor.extractProfile(combinedText, "notion", "workspace");
+        Object.assign(profile, fallbackProfile);
       }
-    } catch (e: any) { console.error("[BACKEND] Profile sync failed.", e.message); }
+
+    } catch (e: any) { console.error("[BACKEND] Profile aggregation failed.", e.message); }
     return profile;
   }
 
   /**
-   * PROVISION with Persistence
+   * PROVISION with Persistence - Supports Auto-Parent Selection
    */
-  async initializeWorkspace(parentPageId: string, onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
+  async initializeWorkspace(parentPageId?: string, onLog?: (tx: MCPTransaction) => void): Promise<WorkspaceSetup> {
     const existing = await this.searchDatabases(onLog);
     const creationStamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     try {
       let careerPageId = existing.careerPageId;
+      let targetParentId = parentPageId;
+
+      // 1. Auto-discover a parent if none provided
+      if (!targetParentId && !careerPageId) {
+        const searchRes = await this.gateway.callTool("notion-search", {
+          filter: { property: "object", value: "page" }
+        });
+        targetParentId = (searchRes as any)?.results?.[0]?.id;
+      }
       
-      if (!careerPageId) {
+      if (!careerPageId && targetParentId) {
+        console.log(`[BACKEND] Creating main Career OS page under ${targetParentId}`);
         const newPage = await this.gateway.callTool("notion-create-pages", {
-          parent: { type: "page_id", page_id: parentPageId },
+          parent: { type: "page_id", page_id: targetParentId },
           properties: {
             title: [{ type: "text", text: { content: "🏛️ Forensic Career OS" } }]
           },
           children: [
-            { object: "block", type: "heading_1", heading_1: { rich_text: [{ type: "text", text: { content: "Forensic Career Intelligence Dashboard" } }] } },
+            { object: "block", type: "heading_1", heading_1: { rich_text: [{ text: { content: "Forensic Career Intelligence Dashboard" } }] } },
             { object: "block", type: "paragraph", paragraph: { rich_text: [{ text: { content: "Your autonomous career tracking layer. Powered by MCP." } }] } }
           ]
         }, onLog);
@@ -238,7 +276,9 @@ export class NotionMCPClient {
 
       if (!careerPageId) return existing;
 
+      // 2. Create databases under the careerPageId
       if (!existing.jobsDataSourceId) {
+        console.log(`[BACKEND] Creating Job Tracker database...`);
         const jobsDb = await this.gateway.callTool("notion-create-database", {
           parent: { type: "page_id", page_id: careerPageId },
           title: [{ type: "text", text: { content: `🎯 Lumina Job Tracker (${creationStamp})` } }],
@@ -258,6 +298,7 @@ export class NotionMCPClient {
       }
       
       if (!existing.skillsDataSourceId) {
+        console.log(`[BACKEND] Creating Skills DNA database...`);
         const skillsDb = await this.gateway.callTool("notion-create-database", {
           parent: { type: "page_id", page_id: careerPageId },
           title: [{ type: "text", text: { content: `🧬 Lumina Skills DNA (${creationStamp})` } }],
@@ -293,8 +334,6 @@ export class NotionMCPClient {
 
       if (existingPageId) {
         await this.gateway.callTool("notion-update-page", { page_id: existingPageId, properties }, onLog);
-        
-        // Append analysis blocks
         await this.gateway.callTool("notion-append-blocks", {
           block_id: existingPageId,
           children: [

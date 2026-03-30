@@ -24,46 +24,47 @@ export async function POST(req: NextRequest) {
     // 1. Discover existing infrastructure
     let setup = await mcp.searchDatabases();
     
-    // 2. Handle Infrastructure Setup (Force Creation)
+    // 2. Extract/Read profile FROM ALL SELECTED PAGES
+    const profile = await mcp.discoverAndReadProfile(selectedPages || []);
+    
+    // 3. Handle Infrastructure Setup (Force Creation)
     if (mode === "FULL_SETUP" || mode === "SETUP" || !setup.jobsDataSourceId) {
-      const parentId = (selectedPages || [])[0];
-      if (parentId) {
-        // Force re-initialization if something is missing
-        const newSetup = await mcp.initializeWorkspace(parentId);
-        setup = { ...setup, ...newSetup };
-        
-        // 3. Extract/Read profile
-        const profile = await mcp.discoverAndReadProfile(selectedPages || []);
+      const parentId = (selectedPages || [])[0]; // If user selected nothing, initializeWorkspace handles auto-parent
+      
+      console.log(`[ROUTE] Triggering workspace initialization. Parent: ${parentId || 'AUTO'}`);
+      const newSetup = await mcp.initializeWorkspace(parentId);
+      setup = { ...setup, ...newSetup };
+      
+      // 4. Force Save Profile
+      if (setup.careerPageId) {
+        await mcp.saveProfile(setup.careerPageId, profile);
+      }
 
-        // 4. Save Profile
-        if (setup.careerPageId) {
-          await mcp.saveProfile(setup.careerPageId, profile);
-        }
-
-        // 5. Generate and save initial matching jobs
-        if (setup.jobsDataSourceId && profile.skills.length > 0) {
-          const recommendedJobs = await engine.generateRecommendations(profile, 5);
-          for (const job of recommendedJobs) {
-            try {
-              await mcp.gateway.callTool("notion-create-pages", {
-                parent: { database_id: setup.jobsDataSourceId },
-                properties: {
-                  "Job Title": { title: [{ text: { content: job.title } }] },
-                  "Company": { rich_text: [{ text: { content: job.company } }] },
-                  "Match Score": { number: (job.matchScore || 0) / 100 },
-                  "Status": { select: { name: "🔍 Researching" } },
-                  "Job URL": { url: job.url || "" }
-                }
-              });
-            } catch (e) {}
+      // 5. Generate and save initial matching jobs
+      if (setup.jobsDataSourceId && profile.skills.length > 0) {
+        const recommendedJobs = await engine.generateRecommendations(profile, 5);
+        for (const job of recommendedJobs) {
+          try {
+            await mcp.gateway.callTool("notion-create-pages", {
+              parent: { database_id: setup.jobsDataSourceId },
+              properties: {
+                "Job Title": { title: [{ text: { content: job.title } }] },
+                "Company": { rich_text: [{ text: { content: job.company } }] },
+                "Match Score": { number: (job.matchScore || 0) / 100 },
+                "Status": { select: { name: "🔍 Researching" } },
+                "Job URL": { url: job.url || "" }
+              }
+            });
+          } catch (e) {
+            console.error(`[ROUTE] Failed to save initial job ${job.title}:`, e);
           }
         }
+      }
 
-        // 6. Generate and save initial skill DNA
-        if (setup.skillsDataSourceId && profile.skills.length > 0) {
-          const gaps = await engine.analyzeSkillGaps(profile);
-          await mcp.saveSkillGaps(setup.skillsDataSourceId, gaps);
-        }
+      // 6. Generate and save initial skill DNA
+      if (setup.skillsDataSourceId && profile.skills.length > 0) {
+        const gaps = await engine.analyzeSkillGaps(profile);
+        await mcp.saveSkillGaps(setup.skillsDataSourceId, gaps);
       }
     }
 
@@ -110,20 +111,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (mode === "GENERATE_JOBS") {
-      const profileData = await mcp.discoverAndReadProfile(selectedPages || []);
-      const jobs = await engine.generateRecommendations(profileData, count || 6);
-      return NextResponse.json({ success: true, jobs });
-    }
-
-    if (mode === "ANALYZE_SKILLS") {
-      const profileData = await mcp.discoverAndReadProfile(selectedPages || []);
-      const gaps = await engine.analyzeSkillGaps(profileData);
-      return NextResponse.json({ success: true, gaps });
-    }
-
-    // LOAD_DATA now returns FULL content from Notion
-    const profile = await mcp.discoverAndReadProfile(selectedPages || []);
+    // After setup, fetch ALL content from Notion to ensure UI has latest data
     const { jobs, skills } = await getFullDataFromNotion(mcp, setup);
 
     return NextResponse.json({
@@ -156,7 +144,7 @@ async function getFullDataFromNotion(mcp: NotionMCPClient, setup: any) {
           company: props["Company"]?.rich_text?.[0]?.plain_text || "Unknown",
           matchScore: (props["Match Score"]?.number || 0) * 100,
           status: props["Status"]?.select?.name?.includes("Research") ? "researching" : 
-                  props["Status"]?.select?.name?.includes("Verified") ? "applied" : "researching",
+                  props["Status"]?.select?.name?.includes("Verified") ? "applied" : "applied",
           url: props["Job URL"]?.url || ""
         };
       });

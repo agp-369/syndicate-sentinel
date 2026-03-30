@@ -28,6 +28,22 @@ export interface WorkspaceSetup {
  * 🛰️ NotionMCPClient v8.0 - GRAPH-AWARE INTELLIGENCE
  * High-fidelity data access, recursive graph traversal, and semantic understanding.
  */
+export interface ForensicReport {
+  verdict: "🟢 LEGITIMATE" | "🔴 SCAM RISK" | "🟡 GHOST JOB" | "⚪ INCONCLUSIVE";
+  score: number;
+  analysis: {
+    flags: string[];
+    hiddenSignals: string[];
+    cultureMatch: string;
+    cyberMetadata?: any;
+  };
+  jobDetails: {
+    title: string;
+    company: string;
+    summary: string;
+  };
+}
+
 export class NotionMCPClient {
   public gateway: NotionMCPGateway;
 

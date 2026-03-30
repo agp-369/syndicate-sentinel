@@ -66,10 +66,10 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 
   if (request.params.uri === "lumina://jobs/forensic-ledger") {
-    const setup = await mcp.searchDatabases();
-    if (!setup.jobsDataSourceId) return { contents: [{ uri: request.params.uri, text: "No job ledger found." }] };
+    const setup = await mcp.recoverInfrastructure();
+    if (!setup.jobsDbId) return { contents: [{ uri: request.params.uri, text: "No job ledger found." }] };
     
-    const jobs = await mcp.queryDataSource(setup.jobsDataSourceId);
+    const jobs = await mcp.queryDataSource(setup.jobsDbId);
     return {
       contents: [
         {

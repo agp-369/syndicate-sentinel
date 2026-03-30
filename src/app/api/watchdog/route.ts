@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   try {
     const { careerPageId, profile } = await req.json();
     const watchdog = new SentinelWatchdog(token);
-    const results = await watchdog.runFullScan(careerPageId, profile);
+    const results = await watchdog.runFullScan();
 
     return NextResponse.json({
       success: true,
